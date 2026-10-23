@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: ${PG_IMAGE_TAG}
+    environment:
+      POSTGRES_DB: ${MLF_DB_NAME}
+      POSTGRES_USER: ${MLF_USER}
+      POSTGRES_PASSWORD: ${MLF_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$MLF_USER -d $$MLF_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:${MLF_IMAGE_TAG}
+    ports:
+      - "${MLFLOW_PORT}:${MLFLOW_CONTAINER_PORT}"
+    environment:
+      - BACKEND_STORE_URI=postgresql://${MLF_USER}:${MLF_PASSWORD}@postgres:${MLF_PORT}/${MLF_DB_NAME}
+    volumes:
+      - ./${MLF_CONFIG}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      mlflow server
+      --host ${MLF_HOST}
+      --port ${MLF_PORT}
+    restart: unless-stopped
+
+  volumes:
+    pg_data:
+

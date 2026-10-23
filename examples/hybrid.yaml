@@ -1,0 +1,39 @@
+# Frontier models with local fallbacks. Needs OPENAI_API_KEY and
+# ANTHROPIC_API_KEY in .env, a vLLM server on the host at :8000, and Ollama.
+
+router:
+  type: mlflow
+  url: http://localhost:${MLFLOW_PORT:-5050}
+
+connections:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+  anthropic:
+    type: anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+  vllm:
+    type: openai-compatible
+    base_url: http://host.docker.internal:8000/v1
+  ollama:
+    type: ollama
+
+models:
+  gpt: { connection: openai, model: gpt-5 }
+  claude: { connection: anthropic, model: claude-sonnet-5-5 }
+  qwen: { connection: vllm, model: Qwen/Qwen3-32B }
+  small: { connection: ollama, model: "qwen3:8b" }
+
+endpoints:
+  # A/B test two frontier models; fall back to local models if both fail.
+  chat:
+    route:
+      - { model: claude, weight: 50 }
+      - { model: gpt, weight: 50 }
+    fallback: [qwen, small]
+
+  # Keep sensitive traffic on your own hardware.
+  private:
+    route: [qwen]
+    fallback: [small]
+    usage_tracking: false

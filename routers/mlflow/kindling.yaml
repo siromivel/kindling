@@ -1,0 +1,49 @@
+# kindling.yaml: what your router should serve. Apply it with `kindling apply`.
+# ${NAME} values come from the environment or .env next to this file.
+
+router:
+  type: mlflow
+  url: http://localhost:${MLFLOW_PORT:-5050}
+
+# Credentials for each upstream API.
+connections:
+  # Ollama on this machine (`ollama serve`); reached from Docker via
+  # host.docker.internal.
+  ollama:
+    type: ollama
+
+  # Any OpenAI-compatible server: vLLM, llama.cpp, LM Studio, SGLang, ...
+  # vllm:
+  #   type: openai-compatible
+  #   base_url: http://host.docker.internal:8000/v1
+  #   api_key: ${VLLM_API_KEY:-}
+
+  # openai:
+  #   type: openai
+  #   api_key: ${OPENAI_API_KEY}
+  # anthropic:
+  #   type: anthropic
+  #   api_key: ${ANTHROPIC_API_KEY}
+
+# Models available through those connections.
+models:
+  qwen:
+    connection: ollama
+    model: qwen3:8b # `ollama pull qwen3:8b`
+  # gpt:
+  #   connection: openai
+  #   model: gpt-5
+  # claude:
+  #   connection: anthropic
+  #   model: claude-sonnet-5-5
+
+# What clients call: http://localhost:5050/gateway/mlflow/v1 with model=<endpoint>.
+endpoints:
+  chat:
+    route: [qwen]
+  # Split traffic by weight, falling back in order when a model fails:
+  # smart:
+  #   route:
+  #     - { model: claude, weight: 80 }
+  #     - { model: gpt, weight: 20 }
+  #   fallback: [qwen]

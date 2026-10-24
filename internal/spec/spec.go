@@ -4,7 +4,8 @@ package spec
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -105,23 +106,14 @@ func (e Endpoint) Weights() []int {
 	return weights
 }
 
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 // ConnectionNames returns connection names in a stable order.
-func (s *Spec) ConnectionNames() []string { return sortedKeys(s.Connections) }
+func (s *Spec) ConnectionNames() []string { return slices.Sorted(maps.Keys(s.Connections)) }
 
 // ModelNames returns model names in a stable order.
-func (s *Spec) ModelNames() []string { return sortedKeys(s.Models) }
+func (s *Spec) ModelNames() []string { return slices.Sorted(maps.Keys(s.Models)) }
 
 // EndpointNames returns endpoint names in a stable order.
-func (s *Spec) EndpointNames() []string { return sortedKeys(s.Endpoints) }
+func (s *Spec) EndpointNames() []string { return slices.Sorted(maps.Keys(s.Endpoints)) }
 
 func (t Target) String() string {
 	if t.Weight == 0 {

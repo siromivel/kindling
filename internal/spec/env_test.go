@@ -53,7 +53,7 @@ func TestSetDotenvValue(t *testing.T) {
 
 func TestEnvPrefersProcessEnvironment(t *testing.T) {
 	t.Setenv("KINDLING_TEST_VAR", "from-process")
-	env := Env{File: map[string]string{"KINDLING_TEST_VAR": "from-file"}}
+	env := Env{"KINDLING_TEST_VAR": "from-file"}
 	if v, _ := env.Lookup("KINDLING_TEST_VAR"); v != "from-process" {
 		t.Errorf("Lookup = %q, want process value", v)
 	}

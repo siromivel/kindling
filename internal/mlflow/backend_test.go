@@ -64,6 +64,13 @@ func apply(t *testing.T, b *Backend, s *spec.Spec, opts backend.Options) []strin
 	return out
 }
 
+func assertChanges(t *testing.T, got, want []string) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Errorf("changes:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+	}
+}
+
 func TestApplyFromScratchThenNoop(t *testing.T) {
 	fake, client := newFakeGateway(t)
 	b := &Backend{Client: client}
@@ -75,9 +82,7 @@ func TestApplyFromScratchThenNoop(t *testing.T) {
 		"+ model gpt (openai/gpt-5)", "+ model llama (ollama/llama3.3:70b)", "+ model qwen (vllm/Qwen/Qwen3-32B)",
 		"+ endpoint chat ([gpt 80%, qwen 20%] fallback [llama])", "+ endpoint local ([qwen 100%])",
 	}
-	if !slices.Equal(changes, want) {
-		t.Errorf("changes:\n  %s\nwant:\n  %s", strings.Join(changes, "\n  "), strings.Join(want, "\n  "))
-	}
+	assertChanges(t, changes, want)
 
 	// Connections map to MLflow providers, with placeholder keys for local servers.
 	for _, s := range fake.secrets {
@@ -110,9 +115,7 @@ func TestApplyFromScratchThenNoop(t *testing.T) {
 		}
 	}
 
-	if changes := apply(t, b, s, backend.Options{}); len(changes) != 0 {
-		t.Errorf("second apply should be a no-op, got %v", changes)
-	}
+	assertChanges(t, apply(t, b, s, backend.Options{}), nil) // second apply is a no-op
 }
 
 func TestApplyUpdates(t *testing.T) {
@@ -136,15 +139,11 @@ func TestApplyUpdates(t *testing.T) {
 		"~ endpoint chat ([gpt 80%, qwen 20%] fallback [llama] → [gpt 60%, qwen 40%] fallback [llama])",
 		"~ endpoint local (usage_tracking: true → false)",
 	}
-	if !slices.Equal(changes, want) {
-		t.Errorf("changes:\n  %s\nwant:\n  %s", strings.Join(changes, "\n  "), strings.Join(want, "\n  "))
-	}
+	assertChanges(t, changes, want)
 	if v := fake.secretValue("openai")["api_key"]; v != "sk-proj-newkey995678" {
 		t.Errorf("openai key = %q", v)
 	}
-	if changes := apply(t, b, mustParse(t, updated), backend.Options{}); len(changes) != 0 {
-		t.Errorf("re-apply should be a no-op, got %v", changes)
-	}
+	assertChanges(t, apply(t, b, mustParse(t, updated), backend.Options{}), nil) // re-apply is a no-op
 }
 
 func TestRotateSecrets(t *testing.T) {
@@ -166,10 +165,8 @@ func TestClearBaseURL(t *testing.T) {
 		"{type: openai, api_key: sk-proj-abcdefgh1234, base_url: \"https://proxy.example.com/v1\"}", 1)
 	apply(t, b, mustParse(t, withBase), backend.Options{})
 
-	changes := apply(t, b, mustParse(t, testSpec), backend.Options{})
-	if !slices.Equal(changes, []string{"~ connection openai (base_url: https://proxy.example.com/v1 → (none))"}) {
-		t.Errorf("changes = %v", changes)
-	}
+	assertChanges(t, apply(t, b, mustParse(t, testSpec), backend.Options{}),
+		[]string{"~ connection openai (base_url: https://proxy.example.com/v1 → (none))"})
 	for _, s := range fake.secrets {
 		if s.Name == "openai" && len(s.AuthConfig) != 0 {
 			t.Errorf("auth_config not cleared: %v", s.AuthConfig)
@@ -208,9 +205,7 @@ endpoints:
 		"~ endpoint chat ([gpt 80%, qwen 20%] fallback [llama] → [gpt 100%])",
 		"- endpoint local", "- model llama", "- model qwen", "- connection ollama", "- connection vllm",
 	}
-	if !slices.Equal(changes, want) {
-		t.Errorf("changes:\n  %s\nwant:\n  %s", strings.Join(changes, "\n  "), strings.Join(want, "\n  "))
-	}
+	assertChanges(t, changes, want)
 	if len(fake.secrets) != 2 || fake.secretValue("manual") == nil {
 		t.Errorf("secrets after prune: %v", fake.secrets)
 	}

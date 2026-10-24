@@ -2,10 +2,11 @@ package spec
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -29,12 +30,7 @@ func (p Problem) String() string {
 
 // HasErrors reports whether any problem is an error rather than a warning.
 func HasErrors(problems []Problem) bool {
-	for _, p := range problems {
-		if p.Severity == Error {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(problems, func(p Problem) bool { return p.Severity == Error })
 }
 
 // Names become URL path segments on most routers, so keep them boring.
@@ -42,27 +38,44 @@ var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Validate checks the spec for router-independent mistakes.
 func (s *Spec) Validate() []Problem {
-	var ps []Problem
+	// Errors and warnings are collected separately so errors come first,
+	// each in spec order.
+	var errs, warns []Problem
 	add := func(sev Severity, path, format string, args ...any) {
-		ps = append(ps, Problem{sev, path, fmt.Sprintf(format, args...)})
+		p := Problem{sev, path, fmt.Sprintf(format, args...)}
+		if sev == Error {
+			errs = append(errs, p)
+		} else {
+			warns = append(warns, p)
+		}
+	}
+	checkName := func(path, name string) {
+		if !namePattern.MatchString(name) {
+			add(Error, path, "name must match %s", namePattern)
+		}
+	}
+	// checkURL returns the parsed URL, or nil after reporting it as invalid.
+	checkURL := func(path, raw string) *url.URL {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			add(Error, path, "must be an http(s) URL, got %q", raw)
+			return nil
+		}
+		return u
 	}
 
 	if s.Router.Type == "" {
 		add(Error, "router.type", "required (e.g. mlflow)")
 	}
-	if u, err := url.Parse(s.Router.URL); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		add(Error, "router.url", "must be an http(s) URL, got %q", s.Router.URL)
-	}
+	checkURL("router.url", s.Router.URL)
 
 	for _, name := range s.ConnectionNames() {
 		c := s.Connections[name]
 		path := "connections." + name
-		if !namePattern.MatchString(name) {
-			add(Error, path, "name must match %s", namePattern)
-		}
+		checkName(path, name)
 		ct, ok := ConnectionTypes[c.Type]
 		if !ok {
-			add(Error, path+".type", "unknown type %q (known: %s)", c.Type, strings.Join(sortedKeys(ConnectionTypes), ", "))
+			add(Error, path+".type", "unknown type %q (known: %s)", c.Type, strings.Join(slices.Sorted(maps.Keys(ConnectionTypes)), ", "))
 			continue
 		}
 		if ct.APIKeyRequired && c.APIKey == "" {
@@ -75,11 +88,10 @@ func (s *Spec) Validate() []Problem {
 			add(Error, path+".base_url", "not supported for %s connections", c.Type)
 		}
 		if c.BaseURL != "" {
-			u, err := url.Parse(c.BaseURL)
-			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-				add(Error, path+".base_url", "must be an http(s) URL, got %q", c.BaseURL)
-			} else if host := u.Hostname(); host == "localhost" || net.ParseIP(host).IsLoopback() {
-				add(Warning, path+".base_url", "%s is the router's own container when it runs in Docker; use host.docker.internal to reach the host", host)
+			if u := checkURL(path+".base_url", c.BaseURL); u != nil {
+				if host := u.Hostname(); host == "localhost" || net.ParseIP(host).IsLoopback() {
+					add(Warning, path+".base_url", "%s is the router's own container when it runs in Docker; use host.docker.internal to reach the host", host)
+				}
 			}
 		}
 	}
@@ -87,9 +99,7 @@ func (s *Spec) Validate() []Problem {
 	for _, name := range s.ModelNames() {
 		m := s.Models[name]
 		path := "models." + name
-		if !namePattern.MatchString(name) {
-			add(Error, path, "name must match %s", namePattern)
-		}
+		checkName(path, name)
 		if _, ok := s.Connections[m.Connection]; !ok {
 			add(Error, path+".connection", "unknown connection %q", m.Connection)
 		}
@@ -102,9 +112,7 @@ func (s *Spec) Validate() []Problem {
 	for _, name := range s.EndpointNames() {
 		e := s.Endpoints[name]
 		path := "endpoints." + name
-		if !namePattern.MatchString(name) {
-			add(Error, path, "name must match %s", namePattern)
-		}
+		checkName(path, name)
 		if len(e.Route) == 0 {
 			add(Error, path+".route", "needs at least one model")
 		}
@@ -147,6 +155,5 @@ func (s *Spec) Validate() []Problem {
 		}
 	}
 
-	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Severity == Error && ps[j].Severity != Error })
-	return ps
+	return append(errs, warns...)
 }

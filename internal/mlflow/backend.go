@@ -394,17 +394,17 @@ func (p *planner) planPrune() {
 			return del(ctx, id)
 		}})
 	}
-	for _, name := range sortedNames(p.endpoints) {
+	for _, name := range slices.Sorted(maps.Keys(p.endpoints)) {
 		if x := p.endpoints[name]; x.CreatedBy == owner && !has(p.s.Endpoints, name) {
 			prune("endpoint", name, x.ID, p.c.DeleteEndpoint)
 		}
 	}
-	for _, name := range sortedNames(p.models) {
+	for _, name := range slices.Sorted(maps.Keys(p.models)) {
 		if x := p.models[name]; x.CreatedBy == owner && !has(p.s.Models, name) {
 			prune("model", name, x.ID, p.c.DeleteModelDefinition)
 		}
 	}
-	for _, name := range sortedNames(p.secrets) {
+	for _, name := range slices.Sorted(maps.Keys(p.secrets)) {
 		if x := p.secrets[name]; x.CreatedBy == owner && !has(p.s.Connections, name) {
 			prune("connection", name, x.ID, p.c.DeleteSecret)
 		}
@@ -426,10 +426,6 @@ func masksMatch(masked, values map[string]string) bool {
 func has[V any](m map[string]V, key string) bool {
 	_, ok := m[key]
 	return ok
-}
-
-func sortedNames[V any](m map[string]V) []string {
-	return slices.Sorted(maps.Keys(m))
 }
 
 func trimSlash(s string) string { return strings.TrimRight(s, "/") }

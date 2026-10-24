@@ -50,7 +50,7 @@ func TestIntegrationMLflow(t *testing.T) {
 	setEnv(t, envPath, "MLFLOW_GATEWAY_API_BASE_ALLOW_PRIVATE_IPS", "false")
 	setEnv(t, envPath, "MLFLOW_GATEWAY_API_BASE_ALLOWED_SCHEMES", "https")
 
-	stack := &composeStack{t: t, dir: dir, project: "kindling-it-" + randomSuffix(t)}
+	stack := &composeStack{t: t, dir: dir, project: "kindling-it-" + randomSuffix()}
 	t.Cleanup(stack.down)
 	stack.up()
 
@@ -429,10 +429,8 @@ func freePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-func randomSuffix(t *testing.T) string {
+func randomSuffix() string {
 	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b)
 	return hex.EncodeToString(b)
 }

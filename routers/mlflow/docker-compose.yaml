@@ -1,0 +1,67 @@
+# MLflow tracking server with its built-in AI Gateway, backed by Postgres.
+# Settings live in .env (see env.example); `kindling init` generates one.
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE in .env}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      # Postgres 18+ keeps versioned data directories under /var/lib/postgresql.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mlflow:
+    # The -full image includes the Postgres driver and gateway dependencies.
+    image: ${MLFLOW_IMAGE:?set MLFLOW_IMAGE in .env}
+    ports:
+      # Loopback only by default: the gateway holds provider credentials and
+      # has no auth unless you enable it.
+      - "${MLFLOW_BIND:-127.0.0.1}:${MLFLOW_PORT:-5050}:5000"
+    environment:
+      # Encrypts stored provider credentials. Changing it makes them unreadable.
+      MLFLOW_CRYPTO_KEK_PASSPHRASE: ${MLFLOW_CRYPTO_KEK_PASSPHRASE:?set MLFLOW_CRYPTO_KEK_PASSPHRASE in .env}
+      # Needed to reach local model servers (Ollama, vLLM, ...); kindling sets
+      # these in .env when kindling.yaml uses one.
+      MLFLOW_GATEWAY_API_BASE_ALLOW_PRIVATE_IPS: ${MLFLOW_GATEWAY_API_BASE_ALLOW_PRIVATE_IPS:-false}
+      MLFLOW_GATEWAY_API_BASE_ALLOWED_SCHEMES: ${MLFLOW_GATEWAY_API_BASE_ALLOWED_SCHEMES:-https}
+    # Configure the server with flags: `mlflow server` overwrites the matching
+    # MLFLOW_* variables with its own defaults before starting workers.
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mlflow}
+      - --artifacts-destination=/mlartifacts
+      # Each worker caches endpoint settings this long, so it's how long
+      # `kindling apply` changes take to reach every worker. 10 is MLflow's
+      # minimum; its default is 60.
+      - --secrets-cache-ttl=${MLFLOW_SECRETS_CACHE_TTL:-10}
+    volumes:
+      - mlartifacts:/mlartifacts
+    extra_hosts:
+      # Lets the gateway reach model servers on the Docker host (built in on
+      # Docker Desktop, needed on Linux).
+      - host.docker.internal:host-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mlartifacts:

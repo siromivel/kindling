@@ -47,7 +47,7 @@ connections:                       # credentials for each upstream API
     api_key: ${ANTHROPIC_API_KEY}  # from the environment or .env
 
 models:
-  qwen:   { connection: vllm, model: Qwen/Qwen3-32B }
+  qwen:   { connection: vllm, model: Qwen/Qwen3.8-27B }
   claude: { connection: anthropic, model: claude-sonnet-5-5 }
 
 endpoints:                         # what clients call

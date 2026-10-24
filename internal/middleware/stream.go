@@ -1,8 +1,9 @@
 package middleware
 
 import (
-	"bytes"
+	"cmp"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -66,9 +67,9 @@ func (a *Assembler) Add(c *ChatChunk) {
 	if a.choices == nil {
 		a.choices = map[int]*assembledChoice{}
 	}
-	a.id = cmpOr(a.id, chunk.ID)
-	a.model = cmpOr(a.model, chunk.Model)
-	a.fingerprint = cmpOr(a.fingerprint, chunk.SystemFingerprint)
+	a.id = cmp.Or(a.id, chunk.ID)
+	a.model = cmp.Or(a.model, chunk.Model)
+	a.fingerprint = cmp.Or(a.fingerprint, chunk.SystemFingerprint)
 	if a.created == nil {
 		a.created = chunk.Created
 	}
@@ -106,8 +107,8 @@ func (a *Assembler) Add(c *ChatChunk) {
 						tc = &assembledToolCall{}
 						ch.toolCalls[d.Index] = tc
 					}
-					tc.id = cmpOr(tc.id, d.ID)
-					tc.typ = cmpOr(tc.typ, d.Type)
+					tc.id = cmp.Or(tc.id, d.ID)
+					tc.typ = cmp.Or(tc.typ, d.Type)
 					tc.name += d.Function.Name
 					tc.args.WriteString(d.Function.Arguments)
 				}
@@ -133,12 +134,12 @@ func (a *Assembler) Body() ([]byte, bool) {
 		return nil, false
 	}
 	var choices []map[string]any
-	for _, i := range sortedKeys(a.choices) {
+	for _, i := range slices.Sorted(maps.Keys(a.choices)) {
 		ch := a.choices[i]
 		if ch.finish == "" {
 			return nil, false
 		}
-		msg := map[string]any{"role": cmpOr(ch.role, "assistant"), "content": nil}
+		msg := map[string]any{"role": cmp.Or(ch.role, "assistant"), "content": nil}
 		for k, v := range ch.other {
 			msg[k] = v
 		}
@@ -147,10 +148,10 @@ func (a *Assembler) Body() ([]byte, bool) {
 		}
 		if len(ch.toolCalls) > 0 {
 			var calls []map[string]any
-			for _, j := range sortedKeys(ch.toolCalls) {
+			for _, j := range slices.Sorted(maps.Keys(ch.toolCalls)) {
 				tc := ch.toolCalls[j]
 				calls = append(calls, map[string]any{
-					"id": tc.id, "type": cmpOr(tc.typ, "function"),
+					"id": tc.id, "type": cmp.Or(tc.typ, "function"),
 					"function": map[string]string{"name": tc.name, "arguments": tc.args.String()},
 				})
 			}
@@ -237,25 +238,4 @@ func ChunksFromResponse(body []byte, includeUsage bool) ([]*ChatChunk, error) {
 		}
 	}
 	return chunks, nil
-}
-
-func isSet(raw json.RawMessage) bool {
-	raw = bytes.TrimSpace(raw)
-	return len(raw) > 0 && string(raw) != "null"
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-func sortedKeys[V any](m map[int]V) []int {
-	keys := make([]int, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
 }

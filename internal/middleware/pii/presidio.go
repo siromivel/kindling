@@ -19,7 +19,11 @@ type Analyzer struct {
 }
 
 func NewAnalyzer(url string) *Analyzer {
-	return &Analyzer{URL: url, HTTP: &http.Client{Timeout: 10 * time.Second}, Language: "en"}
+	// Keep enough idle connections for the stage's concurrent calls; the
+	// default transport keeps only two per host.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = 64
+	return &Analyzer{URL: url, HTTP: &http.Client{Timeout: 10 * time.Second, Transport: t}, Language: "en"}
 }
 
 // Result is one detected entity. Start and End index the text's Unicode code

@@ -22,7 +22,6 @@ type Trace struct {
 // Span is a timed step of a request. Its methods are safe to call on a nil
 // *Span, so stages can annotate SpanFromContext(ctx) without checking.
 type Span struct {
-	TraceID   [16]byte
 	ID        [8]byte
 	ParentID  [8]byte // zero for the root
 	Name      string
@@ -55,7 +54,7 @@ func (t *Trace) Spans() []*Span {
 }
 
 func (t *Trace) start(name string, parent [8]byte) *Span {
-	s := &Span{TraceID: t.ID, ParentID: parent, Name: name, StartTime: time.Now(), attrs: map[string]any{}, trace: t}
+	s := &Span{ParentID: parent, Name: name, StartTime: time.Now(), attrs: map[string]any{}, trace: t}
 	rand.Read(s.ID[:])
 	t.mu.Lock()
 	t.spans = append(t.spans, s)
@@ -86,9 +85,17 @@ func (s *Span) SetOutcome(outcome string) { s.Set("kindling.outcome", outcome) }
 
 // Outcome returns the recorded outcome, or "".
 func (s *Span) Outcome() string {
-	v, _ := s.Attr("kindling.outcome").(string)
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, _ := s.attrs["kindling.outcome"].(string)
 	return v
 }
+
+// TraceID returns the span's trace ID in hex.
+func (s *Span) TraceID() string { return s.trace.TraceID() }
 
 // SetError marks the span as failed.
 func (s *Span) SetError(err error) {
@@ -98,16 +105,6 @@ func (s *Span) SetError(err error) {
 	s.mu.Lock()
 	s.Err = err.Error()
 	s.mu.Unlock()
-}
-
-// Attr returns one attribute, or nil.
-func (s *Span) Attr(key string) any {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.attrs[key]
 }
 
 // Attrs returns a copy of the span's attributes.
@@ -167,7 +164,7 @@ func NewAsyncExporter(exp Exporter, log *slog.Logger) *AsyncExporter {
 		for spans := range a.queue {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if err := a.exp.Export(ctx, spans); err != nil {
-				a.log.Warn("exporting trace", "trace_id", hex.EncodeToString(spans[0].TraceID[:]), "error", err)
+				a.log.Warn("exporting trace", "trace_id", spans[0].TraceID(), "error", err)
 			}
 			cancel()
 		}
@@ -182,7 +179,7 @@ func (a *AsyncExporter) Export(_ context.Context, spans []*Span) error {
 	select {
 	case a.queue <- spans:
 	default:
-		a.log.Warn("trace export queue is full; dropping trace", "trace_id", hex.EncodeToString(spans[0].TraceID[:]))
+		a.log.Warn("trace export queue is full; dropping trace", "trace_id", spans[0].TraceID())
 	}
 	return nil
 }

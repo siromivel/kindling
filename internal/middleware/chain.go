@@ -118,7 +118,14 @@ func (r *Run) Response(ctx context.Context, resp *ChatResponse) error {
 // Chunk passes one streamed chunk through the response phase, in reverse
 // chain order, and returns the chunks to send to the client now.
 func (r *Run) Chunk(ctx context.Context, chunk *ChatChunk) ([]*ChatChunk, error) {
-	return r.passChunks(ctx, r.respond-1, []*ChatChunk{chunk})
+	chunks := []*ChatChunk{chunk}
+	for i := r.respond - 1; i >= 0; i-- {
+		var err error
+		if chunks, err = r.chunkThrough(ctx, i, chunks); err != nil {
+			return nil, err
+		}
+	}
+	return chunks, nil
 }
 
 // Flush ends a stream. Each stage, innermost first, emits what it buffered,
@@ -149,17 +156,6 @@ func (r *Run) Flush(ctx context.Context) ([]*ChatChunk, error) {
 		pending = append(pending, out...)
 	}
 	return pending, nil
-}
-
-// passChunks runs chunks through stages from..0.
-func (r *Run) passChunks(ctx context.Context, from int, chunks []*ChatChunk) ([]*ChatChunk, error) {
-	for i := from; i >= 0; i-- {
-		var err error
-		if chunks, err = r.chunkThrough(ctx, i, chunks); err != nil {
-			return nil, err
-		}
-	}
-	return chunks, nil
 }
 
 // chunkThrough runs chunks through stage i's OnChunk.

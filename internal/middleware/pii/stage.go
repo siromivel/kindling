@@ -69,6 +69,7 @@ func (s *Stage) OnRequest(ctx context.Context, req *middleware.ChatRequest) (*mi
 		err       error
 	}
 	var jobs []*job
+	scanned := map[int][]string{}
 	for i := range req.Messages {
 		m := &req.Messages[i]
 		if !slices.Contains(s.policy.Roles, m.Role) {
@@ -78,6 +79,7 @@ func (s *Stage) OnRequest(ctx context.Context, req *middleware.ChatRequest) (*mi
 		if err != nil {
 			return nil, fmt.Errorf("message %d: %w", i, err)
 		}
+		scanned[i] = texts
 		for j, t := range texts {
 			t = ValidUTF8(t) // the exact string both the analyzer and Redact see
 			jobs = append(jobs, &job{msg: i, part: j, text: t, result: t})
@@ -104,7 +106,7 @@ func (s *Stage) OnRequest(ctx context.Context, req *middleware.ChatRequest) (*mi
 	wg.Wait()
 
 	counts := map[Finding]int{}
-	changed := map[int][]string{}
+	changed := map[int]bool{}
 	for _, j := range jobs {
 		if j.err != nil {
 			return nil, j.err
@@ -113,14 +115,12 @@ func (s *Stage) OnRequest(ctx context.Context, req *middleware.ChatRequest) (*mi
 			counts[f]++
 		}
 		if j.result != j.text {
-			if changed[j.msg] == nil {
-				changed[j.msg], _ = req.Messages[j.msg].Texts()
-			}
-			changed[j.msg][j.part] = j.result
+			scanned[j.msg][j.part] = j.result
+			changed[j.msg] = true
 		}
 	}
-	for i, texts := range changed {
-		if err := req.Messages[i].SetTexts(texts); err != nil {
+	for i := range changed {
+		if err := req.Messages[i].SetTexts(scanned[i]); err != nil {
 			return nil, fmt.Errorf("message %d: %w", i, err)
 		}
 	}

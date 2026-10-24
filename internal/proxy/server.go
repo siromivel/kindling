@@ -47,8 +47,11 @@ func New(cfg Config) *Server {
 	}
 	if cfg.HTTP == nil {
 		// No overall timeout: streamed answers can take minutes. The client's
-		// context bounds each request.
-		cfg.HTTP = &http.Client{}
+		// context bounds each request. Every request goes to the one router,
+		// so keep more than the default two idle connections to it.
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.MaxIdleConnsPerHost = 64
+		cfg.HTTP = &http.Client{Transport: t}
 	}
 	s := &Server{cfg: cfg, mux: http.NewServeMux()}
 	s.mux.HandleFunc("POST /v1/chat/completions", s.chat)
@@ -97,15 +100,15 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	resp, err := x.run.Request(ctx)
 	if err != nil {
-		s.stageFailed(x, err)
+		x.stageFailed(err)
 		return
 	}
 	if resp != nil {
 		if req.Stream() && resp.StatusCode == http.StatusOK {
-			s.replay(ctx, x, resp)
+			x.replay(ctx, resp)
 			return
 		}
-		s.respond(ctx, x, resp)
+		x.respond(ctx, resp)
 		return
 	}
 
@@ -119,9 +122,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upstream.Body.Close()
-	defer x.upstream.End()
 	if req.Stream() && upstream.StatusCode == http.StatusOK && strings.HasPrefix(upstream.Header.Get("Content-Type"), "text/event-stream") {
-		s.stream(ctx, x, upstream)
+		x.stream(ctx, upstream)
 		return
 	}
 	data, err := io.ReadAll(upstream.Body)
@@ -131,7 +133,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, x.status, "upstream_error", "the router's response was cut off")
 		return
 	}
-	s.respond(ctx, x, &middleware.ChatResponse{StatusCode: upstream.StatusCode, Header: upstream.Header, Body: data})
+	x.respond(ctx, &middleware.ChatResponse{StatusCode: upstream.StatusCode, Header: upstream.Header, Body: data})
 }
 
 // forward sends the (possibly changed) request to the router.
@@ -162,9 +164,9 @@ func (s *Server) forward(ctx context.Context, x *exchange) (*http.Response, erro
 }
 
 // respond runs the response phase on a complete response and sends it.
-func (s *Server) respond(ctx context.Context, x *exchange, resp *middleware.ChatResponse) {
+func (x *exchange) respond(ctx context.Context, resp *middleware.ChatResponse) {
 	if err := x.run.Response(ctx, resp); err != nil {
-		s.stageFailed(x, err)
+		x.stageFailed(err)
 		return
 	}
 	h := x.w.Header()
@@ -173,13 +175,13 @@ func (s *Server) respond(ctx context.Context, x *exchange, resp *middleware.Chat
 			h[k] = vs
 		}
 	}
-	s.writeHeader(x, resp.StatusCode)
+	x.writeHeader(resp.StatusCode)
 	x.w.Write(resp.Body)
 }
 
 // stream relays a streamed response chunk by chunk, flushing each one.
-func (s *Server) stream(ctx context.Context, x *exchange, upstream *http.Response) {
-	s.startStream(x)
+func (x *exchange) stream(ctx context.Context, upstream *http.Response) {
+	x.startStream()
 	events := newSSEReader(upstream.Body)
 	for {
 		data, err := events.next()
@@ -194,59 +196,59 @@ func (s *Server) stream(ctx context.Context, x *exchange, upstream *http.Respons
 		}
 		chunks, err := x.run.Chunk(ctx, &middleware.ChatChunk{Data: data})
 		if err != nil {
-			s.streamFailed(x, err)
+			x.streamFailed(err)
 			return
 		}
-		s.send(x, chunks)
+		x.send(chunks)
 	}
 	x.upstream.End()
-	s.endStream(ctx, x)
+	x.endStream(ctx)
 }
 
 // replay answers a streamed request with a complete response, such as a
 // cache hit, as a synthetic stream.
-func (s *Server) replay(ctx context.Context, x *exchange, resp *middleware.ChatResponse) {
+func (x *exchange) replay(ctx context.Context, resp *middleware.ChatResponse) {
 	var opts struct {
 		IncludeUsage bool `json:"include_usage"`
 	}
 	x.req.Param("stream_options", &opts)
 	chunks, err := middleware.ChunksFromResponse(resp.Body, opts.IncludeUsage)
 	if err != nil {
-		s.respond(ctx, x, resp)
+		x.respond(ctx, resp)
 		return
 	}
-	s.startStream(x)
+	x.startStream()
 	for _, c := range chunks {
 		out, err := x.run.Chunk(ctx, c)
 		if err != nil {
-			s.streamFailed(x, err)
+			x.streamFailed(err)
 			return
 		}
-		s.send(x, out)
+		x.send(out)
 	}
-	s.endStream(ctx, x)
+	x.endStream(ctx)
 }
 
-func (s *Server) startStream(x *exchange) {
+func (x *exchange) startStream() {
 	h := x.w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
-	s.writeHeader(x, http.StatusOK)
+	x.writeHeader(http.StatusOK)
 	flush(x.w)
 }
 
-func (s *Server) endStream(ctx context.Context, x *exchange) {
+func (x *exchange) endStream(ctx context.Context) {
 	chunks, err := x.run.Flush(ctx)
 	if err != nil {
-		s.streamFailed(x, err)
+		x.streamFailed(err)
 		return
 	}
-	s.send(x, chunks)
+	x.send(chunks)
 	writeEvent(x.w, []byte("[DONE]"))
 	flush(x.w)
 }
 
-func (s *Server) send(x *exchange, chunks []*middleware.ChatChunk) {
+func (x *exchange) send(chunks []*middleware.ChatChunk) {
 	for _, c := range chunks {
 		writeEvent(x.w, c.Data)
 	}
@@ -255,7 +257,7 @@ func (s *Server) send(x *exchange, chunks []*middleware.ChatChunk) {
 	}
 }
 
-func (s *Server) writeHeader(x *exchange, status int) {
+func (x *exchange) writeHeader(status int) {
 	h := x.w.Header()
 	for k, vs := range x.req.ResponseHeader {
 		h[k] = vs
@@ -266,7 +268,7 @@ func (s *Server) writeHeader(x *exchange, status int) {
 }
 
 // stageFailed answers with the OpenAI-shaped error for a fail_closed stage.
-func (s *Server) stageFailed(x *exchange, err error) {
+func (x *exchange) stageFailed(err error) {
 	x.w.Header().Set(TraceHeader, x.trace.TraceID())
 	x.status = http.StatusServiceUnavailable
 	writeError(x.w, x.status, "middleware_error", stageMessage(err))
@@ -274,7 +276,7 @@ func (s *Server) stageFailed(x *exchange, err error) {
 
 // streamFailed ends a stream whose headers are already sent with an error
 // event, and no [DONE].
-func (s *Server) streamFailed(x *exchange, err error) {
+func (x *exchange) streamFailed(err error) {
 	data, _ := json.Marshal(errorBody("middleware_error", stageMessage(err)))
 	writeEvent(x.w, data)
 	flush(x.w)

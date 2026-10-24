@@ -11,30 +11,26 @@ import (
 )
 
 // Load reads a kindling.yaml file, resolving ${VAR} references against env.
-func Load(path string, env Env) (*Spec, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return Parse(data, env)
-}
+func Load(path string, env Env) (*Spec, error) { return load(path, env, true) }
 
 // Parse decodes kindling.yaml content and resolves ${VAR} references.
 func Parse(data []byte, env Env) (*Spec, error) { return decode(data, env, true) }
 
 // LoadForEdge is Load for `kindling serve`.
-func LoadForEdge(path string, env Env) (*Spec, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return ParseForEdge(data, env)
-}
+func LoadForEdge(path string, env Env) (*Spec, error) { return load(path, env, false) }
 
 // ParseForEdge is Parse for the edge, which uses only each connection's type.
 // Connections' api_key and base_url are left unexpanded, so the edge never
 // holds credentials and their variables needn't be set where it runs.
 func ParseForEdge(data []byte, env Env) (*Spec, error) { return decode(data, env, false) }
+
+func load(path string, env Env, connections bool) (*Spec, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return decode(data, env, connections)
+}
 
 func decode(data []byte, env Env, connections bool) (*Spec, error) {
 	var s Spec
@@ -54,14 +50,13 @@ func decode(data []byte, env Env, connections bool) (*Spec, error) {
 	}
 
 	expand("router.url", &s.Router.URL)
-	for _, name := range s.ConnectionNames() {
-		if !connections {
-			continue
+	if connections {
+		for _, name := range s.ConnectionNames() {
+			c := s.Connections[name]
+			expand("connections."+name+".api_key", &c.APIKey)
+			expand("connections."+name+".base_url", &c.BaseURL)
+			s.Connections[name] = c
 		}
-		c := s.Connections[name]
-		expand("connections."+name+".api_key", &c.APIKey)
-		expand("connections."+name+".base_url", &c.BaseURL)
-		s.Connections[name] = c
 	}
 	for _, name := range s.ModelNames() {
 		m := s.Models[name]

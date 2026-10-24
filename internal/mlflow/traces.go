@@ -39,8 +39,7 @@ func (b *Backend) TraceExporter(s *spec.Spec) middleware.Exporter {
 				id = found
 			}
 			h := http.Header{"X-Mlflow-Experiment-Id": {id}}
-			req := &http.Request{Header: h}
-			b.Client.authorize(req)
+			b.Client.authorize(h)
 			return h, nil
 		},
 	}

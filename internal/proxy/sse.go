@@ -26,7 +26,7 @@ func (r *sseReader) next() ([]byte, error) {
 		line := r.sc.Bytes()
 		if len(line) == 0 {
 			if data != nil {
-				return bytes.Join(data, []byte("\n")), nil
+				return joinData(data), nil
 			}
 			continue
 		}
@@ -39,9 +39,18 @@ func (r *sseReader) next() ([]byte, error) {
 	}
 	if data != nil {
 		// A final event without its blank line.
-		return bytes.Join(data, []byte("\n")), nil
+		return joinData(data), nil
 	}
 	return nil, io.EOF
+}
+
+// joinData joins an event's data lines. Most events have one, already a
+// copy, so it's returned as is.
+func joinData(data [][]byte) []byte {
+	if len(data) == 1 {
+		return data[0]
+	}
+	return bytes.Join(data, []byte("\n"))
 }
 
 func writeEvent(w io.Writer, data []byte) error {

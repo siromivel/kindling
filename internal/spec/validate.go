@@ -70,15 +70,16 @@ func checkURL(add addFunc, path, raw string) *url.URL {
 // Names become URL path segments on most routers, so keep them boring.
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
+func checkName(add addFunc, path, name string) {
+	if !namePattern.MatchString(name) {
+		add(Error, path, "name must match %s", namePattern)
+	}
+}
+
 // Validate checks the spec for router-independent mistakes.
 func (s *Spec) Validate() []Problem {
 	var ps problems
 	add := ps.add
-	checkName := func(path, name string) {
-		if !namePattern.MatchString(name) {
-			add(Error, path, "name must match %s", namePattern)
-		}
-	}
 	if s.Router.Type == "" {
 		add(Error, "router.type", "required (e.g. mlflow)")
 	}
@@ -87,7 +88,7 @@ func (s *Spec) Validate() []Problem {
 	for _, name := range s.ConnectionNames() {
 		c := s.Connections[name]
 		path := "connections." + name
-		checkName(path, name)
+		checkName(add, path, name)
 		ct, ok := ConnectionTypes[c.Type]
 		if !ok {
 			add(Error, path+".type", "unknown type %q (known: %s)", c.Type, strings.Join(slices.Sorted(maps.Keys(ConnectionTypes)), ", "))
@@ -114,7 +115,7 @@ func (s *Spec) Validate() []Problem {
 	for _, name := range s.ModelNames() {
 		m := s.Models[name]
 		path := "models." + name
-		checkName(path, name)
+		checkName(add, path, name)
 		if _, ok := s.Connections[m.Connection]; !ok {
 			add(Error, path+".connection", "unknown connection %q", m.Connection)
 		}
@@ -127,7 +128,7 @@ func (s *Spec) Validate() []Problem {
 	for _, name := range s.EndpointNames() {
 		e := s.Endpoints[name]
 		path := "endpoints." + name
-		checkName(path, name)
+		checkName(add, path, name)
 		if len(e.Route) == 0 {
 			add(Error, path+".route", "needs at least one model")
 		}

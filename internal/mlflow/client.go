@@ -5,6 +5,7 @@ package mlflow
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -68,7 +69,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	c.authorize(req)
+	c.authorize(req.Header)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -92,12 +93,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return json.Unmarshal(data, out)
 }
 
-func (c *Client) authorize(req *http.Request) {
+// authorize adds the client's credentials to h, for its own requests and
+// for other callers of the same server, like the OTLP exporter.
+func (c *Client) authorize(h http.Header) {
 	switch {
 	case c.Token != "":
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+		h.Set("Authorization", "Bearer "+c.Token)
 	case c.Username != "":
-		req.SetBasicAuth(c.Username, c.Password)
+		h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.Username+":"+c.Password)))
 	}
 }
 

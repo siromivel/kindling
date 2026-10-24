@@ -95,7 +95,7 @@ func otlpRequest(service string, spans []*Span) map[string]any {
 	var out []otlpSpan
 	for _, s := range spans {
 		o := otlpSpan{
-			TraceID: hex.EncodeToString(s.TraceID[:]),
+			TraceID: s.TraceID(),
 			SpanID:  hex.EncodeToString(s.ID[:]),
 			Name:    s.Name,
 			Kind:    spanKindInternal,

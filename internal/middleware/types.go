@@ -160,10 +160,10 @@ func (m *Message) SetTexts(texts []string) error {
 
 // rewriteTexts returns the content with each text passed through fn.
 func (m *Message) rewriteTexts(fn func(string) string) (json.RawMessage, error) {
-	content := bytes.TrimSpace(m.Content)
-	if len(content) == 0 || string(content) == "null" {
+	if !isSet(m.Content) {
 		return m.Content, nil
 	}
+	content := bytes.TrimSpace(m.Content)
 	switch content[0] {
 	case '"':
 		var s string
@@ -190,6 +190,12 @@ func (m *Message) rewriteTexts(fn func(string) string) (json.RawMessage, error) 
 	default:
 		return nil, errors.New("message content must be a string or an array of content parts")
 	}
+}
+
+// isSet reports whether raw holds a JSON value other than null.
+func isSet(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	return len(raw) > 0 && string(raw) != "null"
 }
 
 // marshal is json.Marshal without HTML escaping, so "<EMAIL_ADDRESS>" reaches

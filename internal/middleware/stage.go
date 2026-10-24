@@ -26,13 +26,6 @@ const (
 	FailOpen
 )
 
-func (p ErrorPolicy) String() string {
-	if p == FailOpen {
-		return "fail_open"
-	}
-	return "fail_closed"
-}
-
 // Stage is one step of the chain. Embed Base to implement only the hooks a
 // stage needs.
 type Stage interface {

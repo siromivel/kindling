@@ -64,17 +64,21 @@ func Redact(text string, results []Result, rules map[string]Rule) (string, []Fin
 		return text, findings
 	}
 
-	// Rewrite from the end so earlier offsets stay valid.
-	for _, c := range slices.Backward(clusters) {
-		var with []rune
+	// Clusters are sorted and disjoint, so one forward pass rewrites them all.
+	var out strings.Builder
+	out.Grow(len(text))
+	prev := 0
+	for _, c := range clusters {
+		out.WriteString(string(runes[prev:c.Start]))
 		if rules[c.EntityType].Operator == spec.OperatorMask {
-			with = mask(runes[c.Start:c.End])
+			out.WriteString(string(mask(runes[c.Start:c.End])))
 		} else {
-			with = []rune("<" + c.EntityType + ">")
+			out.WriteString("<" + c.EntityType + ">")
 		}
-		runes = slices.Concat(runes[:c.Start], with, runes[c.End:])
+		prev = c.End
 	}
-	return string(runes), findings
+	out.WriteString(string(runes[prev:]))
+	return out.String(), findings
 }
 
 // cluster merges overlapping or touching results into one per group,

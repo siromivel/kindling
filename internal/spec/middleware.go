@@ -324,9 +324,7 @@ func (s *Spec) validateMiddleware(add addFunc) {
 	for _, name := range slices.Sorted(maps.Keys(m.PIIPolicies)) {
 		pol := m.PIIPolicies[name]
 		path := "middleware.pii_policies." + name
-		if !namePattern.MatchString(name) {
-			add(Error, path, "name must match %s", namePattern)
-		}
+		checkName(add, path, name)
 		if len(pol.Roles) == 0 {
 			add(Error, path+".roles", "needs at least one role (%s)", strings.Join(piiRoles, ", "))
 		}

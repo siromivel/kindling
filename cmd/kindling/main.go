@@ -55,6 +55,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "kindling: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
 	}
+	if errors.Is(err, errChanges) {
+		os.Exit(2)
+	}
 	if err != nil {
 		if !errors.Is(err, errReported) {
 			fmt.Fprintln(os.Stderr, "kindling:", err)
@@ -65,6 +68,21 @@ func main() {
 
 // errReported means the problem was already printed.
 var errReported = errors.New("reported")
+
+// errChanges is `plan -detailed-exitcode` reporting that the router doesn't
+// match kindling.yaml. It exits 2, like terraform plan -detailed-exitcode.
+var errChanges = errors.New("changes pending")
+
+// parseFlags behaves like flag.ExitOnError but exits 1 on bad flags, not 2, so
+// they can't be mistaken for errChanges.
+func parseFlags(fs *flag.FlagSet, args []string) {
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		os.Exit(1)
+	}
+}
 
 type specFlags struct {
 	file, envFile string
@@ -147,9 +165,9 @@ func warnUnmet(unmet []backend.EnvRequirement, envPath string) {
 
 func runValidate(args []string) error {
 	var f specFlags
-	fs := flag.NewFlagSet("validate", flag.ExitOnError)
+	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	f.register(fs)
-	fs.Parse(args)
+	parseFlags(fs, args)
 
 	s, env, b, err := f.load()
 	if err != nil {
@@ -164,11 +182,15 @@ func runPlan(ctx context.Context, args []string, apply bool) error {
 	var f specFlags
 	var opts backend.Options
 	name := map[bool]string{false: "plan", true: "apply"}[apply]
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	f.register(fs)
 	fs.BoolVar(&opts.Prune, "prune", false, "delete kindling-created objects that are no longer in kindling.yaml")
 	fs.BoolVar(&opts.RotateSecrets, "rotate-secrets", false, "re-send every API key, even ones that look unchanged")
-	fs.Parse(args)
+	var detailedExit bool
+	if !apply {
+		fs.BoolVar(&detailedExit, "detailed-exitcode", false, "exit 0 if the router matches kindling.yaml, 2 if there are changes, 1 on errors")
+	}
+	parseFlags(fs, args)
 
 	s, env, b, err := f.load()
 	if err != nil {
@@ -195,7 +217,13 @@ func runPlan(ctx context.Context, args []string, apply bool) error {
 		return fmt.Errorf("reading router state from %s: %w", s.Router.URL, err)
 	}
 	printPlan(os.Stdout, s, plan, opts)
-	if !apply || len(plan.Changes) == 0 {
+	if len(plan.Changes) == 0 {
+		return nil
+	}
+	if !apply {
+		if detailedExit {
+			return errChanges
+		}
 		return nil
 	}
 
@@ -225,10 +253,10 @@ func printPlan(w io.Writer, s *spec.Spec, plan *backend.Plan, opts backend.Optio
 }
 
 func runInit(args []string) error {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "directory to write into")
 	force := fs.Bool("force", false, "overwrite docker-compose.yaml and kindling.yaml (never .env)")
-	fs.Parse(args)
+	parseFlags(fs, args)
 
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
 		return err

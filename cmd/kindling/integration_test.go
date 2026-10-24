@@ -66,6 +66,9 @@ func TestIntegrationMLflow(t *testing.T) {
 	apply := func(args ...string) error {
 		return runPlan(ctx, append([]string{"-f", specPath}, args...), true)
 	}
+	driftCheck := func() error {
+		return runPlan(ctx, []string{"-f", specPath, "-detailed-exitcode"}, false)
+	}
 
 	writeSpec(fullSpec)
 
@@ -142,10 +145,16 @@ func TestIntegrationMLflow(t *testing.T) {
 			"~ model a (model: model-a → model-a2)",
 			"~ endpoint split ([a 80%, b 20%] → [a 30%, b 70%])",
 		})
+		if err := driftCheck(); !errors.Is(err, errChanges) {
+			t.Fatalf("plan -detailed-exitcode = %v, want errChanges", err)
+		}
 		if err := apply(); err != nil {
 			t.Fatal(err)
 		}
 		assertNoChanges(t, specPath)
+		if err := driftCheck(); err != nil {
+			t.Fatalf("plan -detailed-exitcode after apply = %v, want nil", err)
+		}
 
 		// Workers that didn't handle the update serve cached settings until
 		// MLFLOW_SERVER_SECRETS_CACHE_TTL (10s) expires.

@@ -71,7 +71,7 @@ default; set `usage_tracking: false` on an endpoint to turn it off.
 |---|---|
 | `kindling init` | Writes `docker-compose.yaml`, `kindling.yaml`, and `.env` with a fresh Postgres password and credential-encryption passphrase. Never overwrites `.env`. |
 | `kindling validate` | Checks `kindling.yaml`: references, weights, required keys, unset `${VARS}`. |
-| `kindling plan` | Shows what `apply` would create, update or delete. |
+| `kindling plan` | Shows what `apply` would create, update or delete. `-detailed-exitcode` exits 0 if the router matches, 2 if there are changes, 1 on errors: a drift check for CI. Add `-prune` to also count objects removed from the file. |
 | `kindling apply` | Makes the router match `kindling.yaml`. `-prune` deletes things you removed from the file; `-rotate-secrets` re-sends every API key. |
 
 ## Safety defaults

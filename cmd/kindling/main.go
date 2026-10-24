@@ -85,11 +85,10 @@ func (f *specFlags) envPath() string {
 // load reads and validates the spec, printing any problems. It fails if there
 // are errors; warnings are printed and ignored.
 func (f *specFlags) load() (*spec.Spec, spec.Env, backend.Backend, error) {
-	vars, err := spec.ReadDotenv(f.envPath())
+	env, err := spec.ReadDotenv(f.envPath())
 	if err != nil {
-		return nil, spec.Env{}, nil, err
+		return nil, nil, nil, err
 	}
-	env := spec.Env{File: vars}
 	s, err := spec.Load(f.file, env)
 	if err != nil {
 		return nil, env, nil, err
@@ -140,6 +139,12 @@ func containsAll(have, want string) bool {
 	return true
 }
 
+func warnUnmet(unmet []backend.EnvRequirement, envPath string) {
+	for _, req := range unmet {
+		fmt.Fprintf(os.Stderr, "warning: %s must be %s (%s); `kindling apply` will set it in %s\n", req.Key, req.Value, req.Reason, envPath)
+	}
+}
+
 func runValidate(args []string) error {
 	var f specFlags
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
@@ -150,9 +155,7 @@ func runValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, req := range unmetEnv(b, s, env) {
-		fmt.Fprintf(os.Stderr, "warning: %s should be %s in %s (%s); `kindling apply` will set it\n", req.Key, req.Value, f.envPath(), req.Reason)
-	}
+	warnUnmet(unmetEnv(b, s, env), f.envPath())
 	fmt.Printf("%s is valid: %d connections, %d models, %d endpoints\n", f.file, len(s.Connections), len(s.Models), len(s.Endpoints))
 	return nil
 }
@@ -174,9 +177,7 @@ func runPlan(ctx context.Context, args []string, apply bool) error {
 
 	if unmet := unmetEnv(b, s, env); len(unmet) > 0 {
 		if !apply {
-			for _, req := range unmet {
-				fmt.Fprintf(os.Stderr, "warning: %s must be %s (%s); `kindling apply` will set it in %s\n", req.Key, req.Value, req.Reason, f.envPath())
-			}
+			warnUnmet(unmet, f.envPath())
 		} else {
 			for _, req := range unmet {
 				if err := spec.SetDotenv(f.envPath(), req.Key, req.Value); err != nil {
@@ -232,19 +233,6 @@ func runInit(args []string) error {
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
 		return err
 	}
-	write := func(name string, data []byte, perm os.FileMode, overwrite bool) error {
-		path := filepath.Join(*dir, name)
-		if _, err := os.Stat(path); err == nil && !overwrite {
-			fmt.Printf("kept     %s (already exists)\n", path)
-			return nil
-		}
-		if err := os.WriteFile(path, data, perm); err != nil {
-			return err
-		}
-		fmt.Printf("wrote    %s\n", path)
-		return nil
-	}
-
 	env, err := initialEnv()
 	if err != nil {
 		return err
@@ -259,9 +247,15 @@ func runInit(args []string) error {
 		{"kindling.yaml", mlflowrouter.Starter, 0o644, *force},
 		{".env", []byte(env), 0o600, false},
 	} {
-		if err := write(f.name, f.data, f.perm, f.overwrite); err != nil {
+		path := filepath.Join(*dir, f.name)
+		if _, err := os.Stat(path); err == nil && !f.overwrite {
+			fmt.Printf("kept     %s (already exists)\n", path)
+			continue
+		}
+		if err := os.WriteFile(path, f.data, f.perm); err != nil {
 			return err
 		}
+		fmt.Printf("wrote    %s\n", path)
 	}
 
 	fmt.Print(`
@@ -278,11 +272,7 @@ Next:
 func initialEnv() (string, error) {
 	env := string(mlflowrouter.EnvExample)
 	for _, key := range []string{"POSTGRES_PASSWORD", "MLFLOW_CRYPTO_KEK_PASSPHRASE"} {
-		secret, err := randomHex(32)
-		if err != nil {
-			return "", err
-		}
-		env = spec.SetDotenvValue(env, key, secret)
+		env = spec.SetDotenvValue(env, key, randomHex(32))
 	}
 
 	starter, err := spec.Parse(mlflowrouter.Starter, spec.Env{})
@@ -295,10 +285,9 @@ func initialEnv() (string, error) {
 	return env, nil
 }
 
-func randomHex(n int) (string, error) {
+// randomHex needs no error path: since Go 1.24, crypto/rand.Read never fails.
+func randomHex(n int) string {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }

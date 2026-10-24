@@ -63,8 +63,7 @@ func needsPrivateNetwork(baseURL string) (private, insecure bool) {
 	} else {
 		// Single-label names (compose services), host.docker.internal and
 		// friends all resolve to private addresses.
-		private = !strings.Contains(host, ".") || host == "host.docker.internal" ||
-			strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local")
+		private = !strings.Contains(host, ".") || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local")
 	}
 	return private, insecure
 }

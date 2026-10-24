@@ -8,7 +8,7 @@ import (
 
 func parse(t *testing.T, yaml string, vars map[string]string) *Spec {
 	t.Helper()
-	s, err := Parse([]byte(yaml), Env{File: vars})
+	s, err := Parse([]byte(yaml), Env(vars))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestParseUnknownField(t *testing.T) {
 }
 
 func TestInterpolate(t *testing.T) {
-	env := Env{File: map[string]string{"A": "1", "EMPTY": ""}}
+	env := Env{"A": "1", "EMPTY": ""}
 	for in, want := range map[string]string{
 		"${A}":          "1",
 		"x${A}y${A}":    "x1y1",
@@ -118,6 +118,7 @@ func TestValidate(t *testing.T) {
 		{"unknown type", func(s *Spec) { s.Connections["openai"] = Connection{Type: "opneai"} }, `unknown type "opneai"`},
 		{"missing key", func(s *Spec) { s.Connections["openai"] = Connection{Type: "openai"} }, "connections.openai.api_key: required"},
 		{"compatible needs url", func(s *Spec) { s.Connections["local"] = Connection{Type: OpenAICompatible} }, "connections.local.base_url: required"},
+		{"bad router url", func(s *Spec) { s.Router.URL = "localhost:5050" }, "router.url: must be an http(s) URL"},
 		{"bad url", func(s *Spec) { s.Connections["local"] = Connection{Type: OpenAICompatible, BaseURL: "host:8000"} }, "must be an http(s) URL"},
 		{"base_url forbidden", func(s *Spec) {
 			s.Connections["openai"] = Connection{Type: "gemini", APIKey: "k", BaseURL: "https://x.dev"}

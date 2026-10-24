@@ -7,23 +7,21 @@ import (
 	"strings"
 )
 
-// Env resolves variables referenced from kindling.yaml. Process environment
-// wins over the .env file, matching docker compose.
-type Env struct {
-	File map[string]string
-}
+// Env holds a .env file's variables for resolving references from
+// kindling.yaml. Process environment wins over it, matching docker compose.
+type Env map[string]string
 
 func (e Env) Lookup(key string) (string, bool) {
 	if v, ok := os.LookupEnv(key); ok {
 		return v, true
 	}
-	v, ok := e.File[key]
+	v, ok := e[key]
 	return v, ok
 }
 
-// ReadDotenv parses a .env file. A missing file yields an empty map.
-func ReadDotenv(path string) (map[string]string, error) {
-	vars := map[string]string{}
+// ReadDotenv parses a .env file. A missing file yields an empty Env.
+func ReadDotenv(path string) (Env, error) {
+	vars := Env{}
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return vars, nil

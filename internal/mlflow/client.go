@@ -47,7 +47,12 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("mlflow: %s (%s)", e.Message, e.Code)
 }
 
+// call makes a gateway API request.
 func (c *Client) call(ctx context.Context, method, path string, body, out any) error {
+	return c.do(ctx, method, "/api/3.0/mlflow/gateway/"+path, body, out)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -56,19 +61,14 @@ func (c *Client) call(ctx context.Context, method, path string, body, out any) e
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/api/3.0/mlflow/gateway/"+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, r)
 	if err != nil {
 		return err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	switch {
-	case c.Token != "":
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	case c.Username != "":
-		req.SetBasicAuth(c.Username, c.Password)
-	}
+	c.authorize(req)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -90,6 +90,15 @@ func (c *Client) call(ctx context.Context, method, path string, body, out any) e
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+func (c *Client) authorize(req *http.Request) {
+	switch {
+	case c.Token != "":
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	case c.Username != "":
+		req.SetBasicAuth(c.Username, c.Password)
+	}
 }
 
 // Wire types mirror mlflow/protos/service.proto; JSON uses proto field names.

@@ -20,7 +20,23 @@ func Load(path string, env Env) (*Spec, error) {
 }
 
 // Parse decodes kindling.yaml content and resolves ${VAR} references.
-func Parse(data []byte, env Env) (*Spec, error) {
+func Parse(data []byte, env Env) (*Spec, error) { return decode(data, env, true) }
+
+// LoadForEdge is Load for `kindling serve`.
+func LoadForEdge(path string, env Env) (*Spec, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ParseForEdge(data, env)
+}
+
+// ParseForEdge is Parse for the edge, which uses only each connection's type.
+// Connections' api_key and base_url are left unexpanded, so the edge never
+// holds credentials and their variables needn't be set where it runs.
+func ParseForEdge(data []byte, env Env) (*Spec, error) { return decode(data, env, false) }
+
+func decode(data []byte, env Env, connections bool) (*Spec, error) {
 	var s Spec
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -39,6 +55,9 @@ func Parse(data []byte, env Env) (*Spec, error) {
 
 	expand("router.url", &s.Router.URL)
 	for _, name := range s.ConnectionNames() {
+		if !connections {
+			continue
+		}
 		c := s.Connections[name]
 		expand("connections."+name+".api_key", &c.APIKey)
 		expand("connections."+name+".base_url", &c.BaseURL)
@@ -48,6 +67,14 @@ func Parse(data []byte, env Env) (*Spec, error) {
 		m := s.Models[name]
 		expand("models."+name+".model", &m.Model)
 		s.Models[name] = m
+	}
+	if m := s.Middleware; m != nil {
+		expand("middleware.listen", &m.Listen)
+		expand("middleware.upstream", &m.Upstream)
+		for i := range m.Stages {
+			expand(fmt.Sprintf("middleware.stages[%d].cache_salt", i), &m.Stages[i].CacheSalt)
+		}
+		m.Upstream = strings.TrimRight(m.Upstream, "/")
 	}
 	if len(missing) > 0 {
 		return nil, errors.New("unset environment variables:\n  " + strings.Join(missing, "\n  "))

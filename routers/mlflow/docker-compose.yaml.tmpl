@@ -1,5 +1,10 @@
 # MLflow tracking server with its built-in AI Gateway, backed by Postgres.
 # Settings live in .env (see env.example); `kindling init` generates one.
+{{- if .Edge}}
+# The edge (kindling's middleware proxy) is included because kindling.yaml has
+# a middleware section{{if .PII}}, and Presidio because it has a pii stage{{end}}.
+# Rerun `kindling init -compose` after adding or removing either.
+{{- end}}
 
 services:
   postgres:
@@ -45,6 +50,11 @@ services:
       # `kindling apply` changes take to reach every worker. 10 is MLflow's
       # minimum; its default is 60.
       - --secrets-cache-ttl=${MLFLOW_SECRETS_CACHE_TTL:-10}
+{{- if .Edge}}
+      # MLflow 3.17's default Host allowlist (DNS rebinding protection), plus
+      # mlflow:5000, the name the edge uses. The flag replaces the defaults.
+      - --allowed-hosts=mlflow:5000,localhost,127.0.0.1,[::1],0.0.0.0,localhost:*,127.0.0.1:*,[[]::1]:*,0.0.0.0:*,192.168.*,10.*,172.16.*,172.17.*,172.18.*,172.19.*,172.20.*,172.21.*,172.22.*,172.23.*,172.24.*,172.25.*,172.26.*,172.27.*,172.28.*,172.29.*,172.30.*,172.31.*,fc00:*,fd00:*
+{{- end}}
     volumes:
       - mlartifacts:/mlartifacts
     extra_hosts:
@@ -61,6 +71,56 @@ services:
       retries: 30
       start_period: 10s
     restart: unless-stopped
+{{- if .Edge}}
+
+  # The edge: `kindling serve`, which runs every chat request through the
+  # stages in kindling.yaml's middleware section. Point clients here instead
+  # of at the gateway. It reads kindling.yaml (restart it after editing the
+  # middleware section: docker compose restart edge) but not .env, so it never
+  # holds credentials.
+  edge:
+    image: ${KINDLING_IMAGE:?set KINDLING_IMAGE in .env}
+    command:
+      - serve
+      - -f=/etc/kindling/kindling.yaml
+      - -listen=0.0.0.0:5060
+      - -router-url=http://mlflow:5000
+{{- if .PII}}
+      - -presidio-url=http://presidio-analyzer:3000
+{{- end}}
+    ports:
+      # Loopback only by default, like the gateway: the edge has no auth.
+      - "${KINDLING_PROXY_BIND:-127.0.0.1}:${KINDLING_PROXY_PORT:-5060}:5060"
+    volumes:
+      - ./kindling.yaml:/etc/kindling/kindling.yaml:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+{{- if .PII}}
+      presidio-analyzer:
+        condition: service_healthy
+{{- end}}
+    healthcheck:
+      test: ["CMD", "/kindling", "healthcheck", "http://localhost:5060/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+{{- end}}
+{{- if .PII}}
+
+  # Finds PII for the edge's pii stage. It has no published port: only the
+  # edge talks to it.
+  presidio-analyzer:
+    image: ${PRESIDIO_ANALYZER_IMAGE:?set PRESIDIO_ANALYZER_IMAGE in .env}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+{{- end}}
 
 volumes:
   pgdata:

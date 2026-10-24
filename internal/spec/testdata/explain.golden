@@ -1,0 +1,36 @@
+Requests pass through the stages top to bottom, responses bottom to top.
+
+endpoint assist
+  1. pii    fail_closed  policy standard
+       roles: user, system
+       CREDIT_CARD    replace  score >= 0.3
+       EMAIL_ADDRESS  replace  score >= 0.5
+       PERSON         keep     score >= 0.5
+       PHONE_NUMBER   mask     score >= 0.5
+       US_SSN         replace  score >= 0.3
+  2. cache  fail_open    on: exact, ttl 1h, max_entries 10000, cache_salt "2026-10", route 36d88b08e3ba
+
+endpoint chat
+  1. pii    fail_closed  policy strict
+       roles: user, system, assistant
+       CREDIT_CARD    replace  score >= 0.3
+       EMAIL_ADDRESS  replace  score >= 0.5
+       LOCATION       replace  score >= 0.5
+       PERSON         replace  score >= 0.5
+       PHONE_NUMBER   replace  score >= 0.5
+       US_SSN         replace  score >= 0.3
+  2. cache  fail_open    off (middleware.overrides.chat.cache)
+
+endpoint local
+  1. pii    fail_closed  off (middleware.overrides.local.pii)
+  2. cache  fail_open    on: exact, ttl 1h, max_entries 10000, cache_salt "2026-10", route 8ebe77ecb4d9
+
+any other model (not an endpoint in kindling.yaml)
+  1. pii    fail_closed  policy standard
+       roles: user, system
+       CREDIT_CARD    replace  score >= 0.3
+       EMAIL_ADDRESS  replace  score >= 0.5
+       PERSON         keep     score >= 0.5
+       PHONE_NUMBER   mask     score >= 0.5
+       US_SSN         replace  score >= 0.3
+  2. cache  fail_open    on: exact, ttl 1h, max_entries 10000, cache_salt "2026-10", route none

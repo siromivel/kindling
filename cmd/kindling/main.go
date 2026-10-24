@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/siromivel/kindling/internal/backend"
 	"github.com/siromivel/kindling/internal/mlflow"
@@ -27,6 +28,7 @@ Usage:
   kindling validate  check kindling.yaml
   kindling plan      show what apply would change on the router
   kindling apply     make the router match kindling.yaml
+  kindling serve     run the edge: the middleware proxy in front of the router
 
 Run "kindling <command> -h" for a command's flags.
 `
@@ -36,7 +38,7 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	var err error
@@ -49,6 +51,11 @@ func main() {
 		err = runPlan(ctx, args, false)
 	case "apply":
 		err = runPlan(ctx, args, true)
+	case "serve":
+		err = runServe(ctx, args)
+	case "healthcheck":
+		// For the edge container's healthcheck, which has no shell or curl.
+		err = runHealthcheck(ctx, args)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -167,14 +174,26 @@ func runValidate(args []string) error {
 	var f specFlags
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	f.register(fs)
+	explain := fs.Bool("explain", false, "print the effective middleware chain for every endpoint, or only the endpoint named after the flags")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: kindling validate [-f kindling.yaml] [-explain [endpoint]]")
+		fs.PrintDefaults()
+	}
 	parseFlags(fs, args)
 
 	s, env, b, err := f.load()
 	if err != nil {
 		return err
 	}
+	if *explain {
+		return s.Explain(os.Stdout, fs.Arg(0))
+	}
 	warnUnmet(unmetEnv(b, s, env), f.envPath())
-	fmt.Printf("%s is valid: %d connections, %d models, %d endpoints\n", f.file, len(s.Connections), len(s.Models), len(s.Endpoints))
+	summary := fmt.Sprintf("%d connections, %d models, %d endpoints", len(s.Connections), len(s.Models), len(s.Endpoints))
+	if s.Middleware != nil {
+		summary += fmt.Sprintf(", %d middleware stages", len(s.Middleware.Stages))
+	}
+	fmt.Printf("%s is valid: %s\n", f.file, summary)
 	return nil
 }
 
@@ -256,6 +275,7 @@ func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "directory to write into")
 	force := fs.Bool("force", false, "overwrite docker-compose.yaml and kindling.yaml (never .env)")
+	composeOnly := fs.Bool("compose", false, "only rewrite docker-compose.yaml, to match kindling.yaml's middleware section")
 	parseFlags(fs, args)
 
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
@@ -265,25 +285,38 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, f := range []struct {
-		name      string
-		data      []byte
-		perm      os.FileMode
-		overwrite bool
-	}{
-		{"docker-compose.yaml", mlflowrouter.Compose, 0o644, *force},
-		{"kindling.yaml", mlflowrouter.Starter, 0o644, *force},
-		{".env", []byte(env), 0o600, false},
-	} {
-		path := filepath.Join(*dir, f.name)
-		if _, err := os.Stat(path); err == nil && !f.overwrite {
+	write := func(name string, data []byte, perm os.FileMode, overwrite bool) error {
+		path := filepath.Join(*dir, name)
+		if _, err := os.Stat(path); err == nil && !overwrite {
 			fmt.Printf("kept     %s (already exists)\n", path)
-			continue
+			return nil
 		}
-		if err := os.WriteFile(path, f.data, f.perm); err != nil {
+		if err := os.WriteFile(path, data, perm); err != nil {
 			return err
 		}
 		fmt.Printf("wrote    %s\n", path)
+		return nil
+	}
+
+	specPath, envPath := filepath.Join(*dir, "kindling.yaml"), filepath.Join(*dir, ".env")
+	if !*composeOnly {
+		if err := write("kindling.yaml", mlflowrouter.Starter, 0o644, *force); err != nil {
+			return err
+		}
+		if err := write(".env", []byte(env), 0o600, false); err != nil {
+			return err
+		}
+	}
+	// The compose file follows whatever kindling.yaml is there now.
+	opts, err := composeOptions(specPath, envPath)
+	if err != nil {
+		return err
+	}
+	if err := write("docker-compose.yaml", mlflowrouter.Compose(opts), 0o644, *force || *composeOnly); err != nil {
+		return err
+	}
+	if *composeOnly {
+		return nil
 	}
 
 	fmt.Print(`
@@ -293,6 +326,20 @@ Next:
   3. kindling apply
 `)
 	return nil
+}
+
+// composeOptions picks docker-compose.yaml's optional services for the
+// kindling.yaml at path.
+func composeOptions(path, envPath string) (mlflowrouter.ComposeOptions, error) {
+	env, err := spec.ReadDotenv(envPath)
+	if err != nil {
+		return mlflowrouter.ComposeOptions{}, err
+	}
+	s, err := spec.LoadForEdge(path, env)
+	if err != nil {
+		return mlflowrouter.ComposeOptions{}, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return mlflowrouter.ComposeOptions{Edge: s.Middleware != nil, PII: s.Middleware.HasStage(spec.StagePII)}, nil
 }
 
 // initialEnv fills env.example with fresh secrets and the gateway settings the

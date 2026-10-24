@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/siromivel/kindling/internal/middleware"
 	"github.com/siromivel/kindling/internal/spec"
 )
 
@@ -15,6 +16,11 @@ type Backend interface {
 	RequiredEnv(s *spec.Spec) []EnvRequirement
 	// Plan compares the spec with the router's current state.
 	Plan(ctx context.Context, s *spec.Spec, opts Options) (*Plan, error)
+	// InferenceURL is the router's OpenAI-compatible base URL (ending in
+	// /v1), where the edge forwards chat requests.
+	InferenceURL(s *spec.Spec) string
+	// TraceExporter returns where the edge sends its spans, or nil.
+	TraceExporter(s *spec.Spec) middleware.Exporter
 }
 
 type Options struct {

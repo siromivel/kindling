@@ -93,6 +93,11 @@ default; set `usage_tracking: false` on an endpoint to turn it off.
 - **Changes take up to ~10s to reach every worker.** Each MLflow server worker
   caches endpoint settings. The compose file sets the cache TTL to MLflow's
   minimum (`MLFLOW_SECRETS_CACHE_TTL=10`; MLflow's default is 60s).
+- **On Linux, local model servers must listen on `0.0.0.0`.** There,
+  `host.docker.internal` is the Docker bridge address, not loopback, so a server
+  bound to `127.0.0.1` (Ollama's default) can't be reached from the gateway. Start
+  it with `OLLAMA_HOST=0.0.0.0 ollama serve`, `vllm serve --host 0.0.0.0`, etc.
+  Firewall the port if this machine is on an untrusted network.
 - **"Failed to send trace" warnings are harmless.** With usage tracking on, MLflow
   logs this for gateway requests, but the traces and their spans are still stored
   in Postgres and show up in the UI. The integration test checks this.

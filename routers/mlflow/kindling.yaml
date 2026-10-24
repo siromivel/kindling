@@ -8,7 +8,9 @@ router:
 # Credentials for each upstream API.
 connections:
   # Ollama on this machine (`ollama serve`); reached from Docker via
-  # host.docker.internal.
+  # host.docker.internal. On Linux that's the Docker bridge, not loopback, so
+  # local servers must listen on 0.0.0.0 (OLLAMA_HOST=0.0.0.0 ollama serve,
+  # vllm serve --host 0.0.0.0).
   ollama:
     type: ollama
 

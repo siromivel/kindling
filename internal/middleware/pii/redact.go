@@ -113,15 +113,16 @@ func stronger(a, b Result, rules map[string]Rule) bool {
 	return a.End-a.Start > b.End-b.Start
 }
 
-// protection ranks operators by how much of a value they hide.
+// protection ranks operators by how much of a value they hide. Redact
+// replaces anything that isn't mask or keep, so it ranks with replace.
 func protection(op string) int {
 	switch op {
-	case spec.OperatorReplace:
-		return 2
+	case spec.OperatorKeep:
+		return 0
 	case spec.OperatorMask:
 		return 1
 	}
-	return 0
+	return 2
 }
 
 // ValidUTF8 returns s with each run of invalid bytes replaced by U+FFFD.

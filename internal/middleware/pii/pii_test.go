@@ -105,6 +105,41 @@ func TestRedactThresholds(t *testing.T) {
 	}
 }
 
+func TestRedactOutOfRange(t *testing.T) {
+	// A buggy analyzer's offsets are clamped to the text, and empty or
+	// reversed spans are ignored.
+	rules := map[string]Rule{"ID": {spec.OperatorReplace, 0}}
+	for _, c := range []struct {
+		start, end int
+		want       string
+		findings   int
+	}{
+		{-3, 4, "<ID>456789", 1},
+		{6, 99, "012345<ID>", 1},
+		{11, 14, "0123456789", 0}, // starts past the end
+		{5, 5, "0123456789", 0},
+		{7, 3, "0123456789", 0},
+	} {
+		out, findings := Redact("0123456789", []Result{{"ID", c.start, c.end, 1}}, rules)
+		if out != c.want || len(findings) != c.findings {
+			t.Errorf("Redact [%d,%d) = %q, %v, want %q with %d findings", c.start, c.end, out, findings, c.want, c.findings)
+		}
+	}
+}
+
+func TestRedactUnknownOperator(t *testing.T) {
+	// Validation rejects unknown operators, but if one got through it would
+	// be replaced, even when merged with a mask that out-scores it.
+	text := "abcdefghijkl"
+	out, findings := Redact(text, []Result{{"U", 0, 12, 0.5}, {"M", 0, 2, 0.9}}, map[string]Rule{
+		"U": {"bogus", 0},
+		"M": {spec.OperatorMask, 0},
+	})
+	if out != "<U>" || !slices.Equal(findings, []Finding{{"U", "bogus"}}) {
+		t.Errorf("Redact = %q, %v", out, findings)
+	}
+}
+
 func TestRedactOverlaps(t *testing.T) {
 	// A keep entity inside a redacted one doesn't protect it, and partly
 	// overlapping redactions are merged so no detected character leaks.
@@ -128,6 +163,18 @@ func TestRedactOverlaps(t *testing.T) {
 	}
 }
 
+func TestRedactKeepPartlyRedacted(t *testing.T) {
+	// The part of a keep match outside a redaction stays, but it isn't
+	// reported as kept, since not all of it was.
+	out, findings := Redact("Ann Lee@x.io", []Result{
+		{"PERSON", 0, 7, 0.9},
+		{"EMAIL_ADDRESS", 4, 12, 1},
+	}, standard)
+	if out != "Ann <EMAIL_ADDRESS>" || !slices.Equal(findings, []Finding{{"EMAIL_ADDRESS", "replace"}}) {
+		t.Errorf("Redact = %q, %v", out, findings)
+	}
+}
+
 func TestMask(t *testing.T) {
 	for in, want := range map[string]string{
 		"212-555-0123":     "***-***-0123",
@@ -135,6 +182,11 @@ func TestMask(t *testing.T) {
 		"4111111111111111": "************1111",
 		"Bob":              "***", // too short to show anything
 		"555-0123":         "***-0123",
+		"Zoë Ångström":     "*** ****tröm",
+		// Only letters and digits are hidden: combining marks and emoji are
+		// kept like separators.
+		"Jose" + combining: "****" + combining,
+		"😀😀😀😀😀😀😀😀":         "😀😀😀😀😀😀😀😀",
 	} {
 		if got := string(mask([]rune(in))); got != want {
 			t.Errorf("mask(%q) = %q, want %q", in, got, want)

@@ -18,11 +18,13 @@ var combining = string(rune(0x301))
 func TestRedactUnicodeOffsets(t *testing.T) {
 	// Offsets are code points: one each for an emoji outside the BMP (two
 	// UTF-16 units), each part of a ZWJ sequence or flag, and a combining mark.
-	for _, prefix := range []string{"😀😀 ", "👩‍💻 ", "🇺🇸 ", "e" + combining + " ", "你好 "} {
-		text := prefix + "mail ann@example.com ok"
-		start := utf8.RuneCountInString(prefix) + len("mail ")
-		out, _ := Redact(text, []Result{{"EMAIL_ADDRESS", start, start + len("ann@example.com"), 1}}, standard)
-		if want := prefix + "mail <EMAIL_ADDRESS> ok"; out != want {
+	// Each appears before, inside and after the match.
+	for _, u := range []string{"😀😀", "👩‍💻", "🇺🇸", "e" + combining, "你好"} {
+		email := "ann" + u + "@example.com"
+		text := u + " mail " + email + " " + u + " ok"
+		start := utf8.RuneCountInString(u + " mail ")
+		out, _ := Redact(text, []Result{{"EMAIL_ADDRESS", start, start + utf8.RuneCountInString(email), 1}}, standard)
+		if want := u + " mail <EMAIL_ADDRESS> " + u + " ok"; out != want {
 			t.Errorf("Redact(%q) = %q, want %q", text, out, want)
 		}
 	}

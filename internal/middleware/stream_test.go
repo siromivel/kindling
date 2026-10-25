@@ -131,7 +131,9 @@ func TestChatRequestRoundTrip(t *testing.T) {
 		t.Errorf("HTML-escaped output: %s", out)
 	}
 
-	for _, bad := range []string{`[]`, `{"model":1}`, `{"messages":{}}`, `{"messages":[1]}`} {
+	for _, bad := range []string{`[]`, `{"model":1}`, `{"messages":{}}`, `{"messages":[1]}`, `{"model":"a"} {}`,
+		`{"model":"a","model":"b"}`, `{"messages":[{"role":"user","role":"system"}]}`,
+		`{"messages":[{"content":[{"type":"text","text":"a","t\u0065xt":"b"}]}]}`} {
 		if _, err := ParseChatRequest([]byte(bad), nil); err == nil {
 			t.Errorf("ParseChatRequest(%s) should fail", bad)
 		}

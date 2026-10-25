@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 )
@@ -27,11 +28,15 @@ type ChatRequest struct {
 	values map[any]any
 }
 
-// ParseChatRequest decodes a chat completions request body.
+// ParseChatRequest decodes a chat completions request body. Duplicate keys in
+// the request, its messages or their content parts are an error: the edge
+// and the router might read different copies, e.g. one redacted and one not.
 func ParseChatRequest(body []byte, header http.Header) (*ChatRequest, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
+	fields, err := objectFields(body)
+	if errors.Is(err, errNotObject) {
 		return nil, errors.New("request body must be a JSON object")
+	} else if err != nil {
+		return nil, fmt.Errorf("request body: %w", err)
 	}
 	r := &ChatRequest{Params: fields, Header: header, ResponseHeader: http.Header{}}
 	if r.Header == nil {
@@ -44,12 +49,55 @@ func ParseChatRequest(body []byte, header http.Header) (*ChatRequest, error) {
 		delete(fields, "model")
 	}
 	if raw, ok := fields["messages"]; ok {
-		if err := json.Unmarshal(raw, &r.Messages); err != nil {
-			return nil, fmt.Errorf("messages must be an array of messages: %w", err)
+		var msgs []json.RawMessage
+		if err := json.Unmarshal(raw, &msgs); err != nil {
+			return nil, errors.New("messages must be an array")
+		}
+		if msgs != nil {
+			r.Messages = make([]Message, len(msgs))
+		}
+		for i, m := range msgs {
+			if err := r.Messages[i].UnmarshalJSON(m); err != nil {
+				return nil, fmt.Errorf("messages[%d]: %w", i, err)
+			}
 		}
 		delete(fields, "messages")
 	}
 	return r, nil
+}
+
+var errNotObject = errors.New("not a JSON object")
+
+// objectFields decodes a JSON object into its raw fields, rejecting
+// duplicate keys. Keys are compared unescaped, so "a" and "\u0061" collide.
+func objectFields(data []byte) (map[string]json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, errNotObject
+	}
+	fields := map[string]json.RawMessage{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, errNotObject
+		}
+		key := tok.(string)
+		if _, dup := fields[key]; dup {
+			return nil, fmt.Errorf("duplicate key %q", key)
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, errNotObject
+		}
+		fields[key] = v
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, errNotObject
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errNotObject
+	}
+	return fields, nil
 }
 
 func (r *ChatRequest) MarshalJSON() ([]byte, error) {
@@ -102,9 +150,11 @@ type Message struct {
 }
 
 func (m *Message) UnmarshalJSON(data []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
+	fields, err := objectFields(data)
+	if errors.Is(err, errNotObject) {
 		return errors.New("message must be an object")
+	} else if err != nil {
+		return err
 	}
 	if raw, ok := fields["role"]; ok {
 		if err := json.Unmarshal(raw, &m.Role); err != nil {
@@ -112,6 +162,15 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		}
 	}
 	m.Content = fields["content"]
+	var parts []json.RawMessage
+	if json.Unmarshal(m.Content, &parts) == nil {
+		for i, part := range parts {
+			// Parts that aren't objects are left for Texts to reject.
+			if _, err := objectFields(part); err != nil && !errors.Is(err, errNotObject) {
+				return fmt.Errorf("content[%d]: %w", i, err)
+			}
+		}
+	}
 	delete(fields, "role")
 	delete(fields, "content")
 	m.Extra = fields

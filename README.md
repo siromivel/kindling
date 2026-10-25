@@ -145,6 +145,11 @@ The edge only expands variables in the fields it uses (models, middleware), neve
 connection credentials, and the container has no `.env`, so give any other `${VAR}` it
 needs a default.
 
+The edge rebuilds each request before forwarding it. Fields it doesn't use (`logprobs`,
+provider extras, ...) reach the router with their JSON values unchanged. A request with
+a duplicate key in the body, a message or a content part gets a 400
+(`invalid_request_error`) and never reaches a stage or the router.
+
 ### Failure handling
 
 `on_error` is required, so what happens when a stage breaks is always a decision:

@@ -183,10 +183,10 @@ func TestMask(t *testing.T) {
 		"Bob":              "***", // too short to show anything
 		"555-0123":         "***-0123",
 		"Zoë Ångström":     "*** ****tröm",
-		// Only letters and digits are hidden: combining marks and emoji are
-		// kept like separators.
-		"Jose" + combining: "****" + combining,
-		"😀😀😀😀😀😀😀😀":         "😀😀😀😀😀😀😀😀",
+		// José here is the decomposed form: J o s e plus a combining accent (U+0301)
+		// José is 5 runes. That’s under the 8-rune minimum, so everything is masked
+		"Jose\u0301": "****",
+		"😀😀😀😀😀😀😀😀":   "****😀😀😀😀",
 	} {
 		if got := string(mask([]rune(in))); got != want {
 			t.Errorf("mask(%q) = %q, want %q", in, got, want)

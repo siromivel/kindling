@@ -163,9 +163,11 @@ a duplicate key in the body, a message or a content part gets a 400
 
 ### pii
 
-- Operators: `replace` writes `<ENTITY_TYPE>`. `mask` keeps the last 4 characters
-  and separators (`***-***-0123`); values shorter than 8 characters are masked
-  entirely. `keep` forwards the value and only counts it on the trace.
+- Operators: `replace` writes `<ENTITY_TYPE>`. `mask` keeps separators (space,
+  `-`, `.`, `@`, `(`, `)`, `/`, `+`, `_`) and the last 4 characters, and masks
+  everything else, including symbols and emoji (`***-***-0123`). Values shorter
+  than 8 characters keep only their separators. `keep` forwards the value and
+  only counts it on the trace.
 - Use `mask` for numbers (phones, cards, SSNs), not names or addresses: "John Smith"
   would become "**** *mith". `kindling validate` prints a notice when you do.
 - Overlapping detections are redacted as one span, with the most protective operator

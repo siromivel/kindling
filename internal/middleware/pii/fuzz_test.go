@@ -105,6 +105,23 @@ func FuzzRedactNoLeak(f *testing.F) {
 	f.Add([]byte("abcdefghijklmnop"), []byte{0, 9, 2, 200, 8, 8, 3, 100, 4, 3, 4, 255})
 	f.Add([]byte("aaaa-bbbb-cccc-dddd"), []byte{0, 19, 3, 255, 5, 9, 0, 50})
 	f.Add([]byte("x"), []byte{255, 255, 1, 255})
+	// Numeric runes that aren't decimal digits: superscripts, circled numbers, fullwidth digits
+	f.Add([]byte("SSN ¹²³-④⑤-６７８９ end"), []byte{4, 16, 1, 255, 0, 3, 2, 120})
+	// Combining marks (NFD "é" = e + U+0301) and a precomposed é side by side
+	f.Add([]byte("Jose\u0301 Jos\u00e9 Rene\u0301e"), []byte{0, 5, 0, 255, 6, 10, 1, 200, 11, 18, 2, 90})
+	// Emoji: ZWJ family sequence, skin-tone modifier, flag (regional indicators)
+	f.Add([]byte("call 👨‍👩‍👧 at 555-0123 👍🏽 🇺🇸 ok"), []byte{0, 12, 1, 255, 13, 21, 0, 180, 5, 9, 3, 60})
+	// Zero-width space and joiner inside an email, plus a BOM
+	f.Add([]byte("\ufeffjohn\u200b@exam\u200dple.com"), []byte{1, 20, 1, 255, 0, 6, 0, 100})
+	// Bidi controls: right-to-left override and an isolate around a number
+	f.Add([]byte("acct \u202e1234-5678\u202c and \u20665551234\u2069"), []byte{5, 16, 1, 255, 21, 30, 0, 255})
+	// Mixed scripts: Arabic, Hebrew, CJK, Cyrillic
+	f.Add([]byte("محمد 电话 13800138000 Иван שלום"), []byte{0, 4, 0, 255, 8, 19, 1, 200, 20, 24, 2, 150})
+	// Invalid UTF-8: lone continuation byte, truncated sequence, encoded surrogate, overlong
+	f.Add([]byte("ab\x80cd\xe2\x82ef\xed\xa0\x80gh\xc0\xafij"), []byte{0, 6, 1, 255, 3, 12, 0, 255})
+	// Control characters: NUL, CRLF, tab, DEL
+	f.Add([]byte("a\x00b\r\nc\td\x7f 555-123-4567"), []byte{0, 4, 2, 255, 9, 21, 1, 255})
+
 	f.Fuzz(func(t *testing.T, layout, spans []byte) {
 		if len(layout) > 300 || len(spans) > 4*20 {
 			return

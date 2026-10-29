@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"slices"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
+	"github.com/rivo/uniseg"
 	"github.com/siromivel/kindling/internal/spec"
 )
 
@@ -73,7 +73,9 @@ func Redact(text string, results []Result, rules map[string]Rule) (string, []Fin
 		if rules[c.EntityType].Operator == spec.OperatorMask {
 			out.WriteString(string(mask(runes[c.Start:c.End])))
 		} else {
-			out.WriteString("<" + c.EntityType + ">")
+			out.WriteByte('<')
+			out.WriteString(c.EntityType)
+			out.WriteByte('>')
 		}
 		prev = c.End
 	}
@@ -144,18 +146,48 @@ const (
 	maskMinLength = 8
 )
 
-// mask hides the letters and digits of s except the last four characters,
-// keeping separators, so 212-555-0123 becomes ***-***-0123.
-func mask(s []rune) []rune {
-	out := slices.Clone(s)
-	visible := len(out) - maskVisible
-	if len(out) < maskMinLength {
-		visible = len(out)
+func isSeparator(r rune) bool {
+	switch r {
+	case ' ', '-', '.', '@', '(', ')', '/', '+', '_':
+		return true
 	}
-	for i := range visible {
-		if unicode.IsLetter(out[i]) || unicode.IsDigit(out[i]) {
-			out[i] = '*'
+	return false
+}
+
+// isSeparatorCluster reports whether a grapheme cluster is a lone separator.
+// A separator carrying combining marks ("-" + U+0301) is not, so it is masked.
+func isSeparatorCluster(c string) bool {
+	r := []rune(c)
+	return len(r) == 1 && isSeparator(r[0])
+}
+
+// mask hides every non-separator grapheme of s except the last four. It
+// counts grapheme clusters (what a reader sees as one character), not runes,
+// so a value's mask has the same shape whether it arrived precomposed (NFC)
+// or decomposed (NFD), and a multi-rune emoji is masked as one unit. Values
+// shorter than eight graphemes keep only their separators. Each masked
+// grapheme becomes one '*', so the output can have fewer runes than s.
+func mask(s []rune) []rune {
+	var clusters []string
+	rest, state := string(s), -1
+	for len(rest) > 0 {
+		var c string
+		c, rest, _, state = uniseg.FirstGraphemeClusterInString(rest, state)
+		clusters = append(clusters, c)
+	}
+
+	maskUpTo := len(clusters) - maskVisible
+	if len(clusters) < maskMinLength {
+		maskUpTo = len(clusters)
+	}
+
+	out := make([]rune, 0, len(s))
+	for i, c := range clusters {
+		if i < maskUpTo && !isSeparatorCluster(c) {
+			out = append(out, '*')
+			continue
 		}
+		out = append(out, []rune(c)...)
 	}
 	return out
 }

@@ -189,3 +189,26 @@ middleware:
 		t.Errorf("chat has cache disabled, but X-Kindling-Cache = %q", h)
 	}
 }
+
+func TestEdgeNeedsPresidioURL(t *testing.T) {
+	s, err := spec.Parse([]byte(`
+router: {type: mlflow}
+connections:
+  local: {type: ollama}
+models:
+  qwen: {connection: local, model: "qwen3:8b"}
+endpoints:
+  chat: {route: [qwen]}
+middleware:
+  stages:
+    - {type: pii, on_error: fail_closed, policy: standard}
+  pii_policies:
+    standard: {roles: [user], entities: {PERSON: {operator: replace}}}
+`), spec.Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newEdge(s, edgeOptions{}); err == nil || !strings.Contains(err.Error(), "-presidio-url") {
+		t.Errorf("newEdge without a Presidio URL: %v", err)
+	}
+}

@@ -26,7 +26,7 @@ func runServe(ctx context.Context, args []string) error {
 	f.register(fs)
 	listen := fs.String("listen", "", "host:port to listen on (default: middleware.listen, or "+spec.DefaultEdgeListen+")")
 	routerURL := fs.String("router-url", "", "the router's URL as seen from here (default: router.url)")
-	fs.StringVar(&opts.presidioURL, "presidio-url", "http://localhost:5002", "Presidio analyzer, for the pii stage")
+	fs.StringVar(&opts.presidioURL, "presidio-url", "", "Presidio analyzer URL (required with a pii stage)")
 	parseFlags(fs, args)
 
 	env, err := spec.ReadDotenv(f.envPath())
@@ -120,6 +120,9 @@ func newEdge(s *spec.Spec, opts edgeOptions) (*edge, error) {
 		}
 		switch st.Type {
 		case spec.StagePII:
+			if opts.presidioURL == "" {
+				return nil, errors.New("the pii stage needs a Presidio analyzer: pass -presidio-url")
+			}
 			analyzer := pii.NewAnalyzer(strings.TrimRight(opts.presidioURL, "/"))
 			for name, pol := range m.PIIPolicies {
 				piiStages[name] = pii.New(analyzer, pii.PolicyFrom(name, pol), onError)

@@ -28,7 +28,7 @@ Usage:
   kindling validate  check kindling.yaml
   kindling plan      show what apply would change on the router
   kindling apply     make the router match kindling.yaml
-  kindling serve     run the edge: the middleware proxy in front of the router
+  kindling serve     run the middleware proxy in front of the router
 
 Run "kindling <command> -h" for a command's flags.
 `

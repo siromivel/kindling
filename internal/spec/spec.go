@@ -19,6 +19,8 @@ type Spec struct {
 	Connections map[string]Connection `yaml:"connections"`
 	Models      map[string]Model      `yaml:"models"`
 	Endpoints   map[string]Endpoint   `yaml:"endpoints"`
+	// Middleware is nil when kindling.yaml has no middleware section.
+	Middleware *Middleware `yaml:"middleware"`
 }
 
 type Router struct {

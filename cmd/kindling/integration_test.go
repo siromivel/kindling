@@ -319,11 +319,19 @@ func eventually(t *testing.T, timeout time.Duration, check func() string) {
 }
 
 // stubServer is a minimal OpenAI-compatible chat API on the host, reachable
-// from containers as host.docker.internal. It answers "from <model>".
+// from containers as host.docker.internal. It answers "from <model>", streamed
+// in two chunks if asked, and records what it was sent.
 type stubServer struct {
-	port int
-	mu   sync.Mutex
-	seen []string // Authorization headers
+	port     int
+	mu       sync.Mutex
+	seen     []string // Authorization headers
+	requests []stubRequest
+}
+
+type stubRequest struct {
+	Model    string
+	Stream   bool
+	Messages []struct{ Role, Content string }
 }
 
 func startStub(t *testing.T) *stubServer {
@@ -333,11 +341,21 @@ func startStub(t *testing.T) *stubServer {
 	}
 	s := &stubServer{port: ln.Addr().(*net.TCPAddr).Port}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Model string }
+		var req stubRequest
 		json.NewDecoder(r.Body).Decode(&req)
 		s.mu.Lock()
 		s.seen = append(s.seen, r.Header.Get("Authorization"))
+		s.requests = append(s.requests, req)
 		s.mu.Unlock()
+		if req.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			for _, delta := range []string{`{"role":"assistant","content":"from "}`, `{"content":"` + req.Model + `"}`} {
+				fmt.Fprintf(w, "data: {\"id\":\"stub\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":%q,\"choices\":[{\"index\":0,\"delta\":%s,\"finish_reason\":null}]}\n\n", time.Now().Unix(), req.Model, delta)
+				w.(http.Flusher).Flush()
+			}
+			fmt.Fprintf(w, "data: {\"id\":\"stub\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", time.Now().Unix(), req.Model)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": "stub", "object": "chat.completion", "created": time.Now().Unix(), "model": req.Model,
@@ -356,13 +374,29 @@ func startStub(t *testing.T) *stubServer {
 func (s *stubServer) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seen = nil
+	s.seen, s.requests = nil, nil
 }
 
 func (s *stubServer) auths() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.seen)
+}
+
+// userMessages returns the last user message of each request received.
+func (s *stubServer) userMessages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, r := range s.requests {
+		for _, m := range slices.Backward(r.Messages) {
+			if m.Role == "user" {
+				out = append(out, m.Content)
+				break
+			}
+		}
+	}
+	return out
 }
 
 type composeStack struct {

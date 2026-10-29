@@ -49,3 +49,18 @@ endpoints:
   #     - { model: claude, weight: 80 }
   #     - { model: gpt, weight: 20 }
   #   fallback: [qwen]
+
+# Middleware: run requests through PII redaction and a cache on their way to
+# the router (see the README). After uncommenting, run `kindling init -compose`
+# to add the edge to docker-compose.yaml, then call http://localhost:5060/v1.
+# middleware:
+#   stages:
+#     - { type: pii, on_error: fail_closed, policy: standard }
+#     - { type: cache, on_error: fail_open, ttl: 1h, max_entries: 10000 }
+#   pii_policies:
+#     standard:
+#       roles: [user, system]
+#       entities:
+#         EMAIL_ADDRESS: { operator: replace }
+#         PHONE_NUMBER:  { operator: mask, score_threshold: 0.4 }
+#         US_SSN:        { operator: replace, score_threshold: 0.3 }

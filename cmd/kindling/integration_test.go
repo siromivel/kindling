@@ -412,10 +412,60 @@ func (c *composeStack) compose(args ...string) ([]byte, error) {
 
 func (c *composeStack) up() {
 	c.t.Helper()
+	c.pull()
 	if out, err := c.compose("up", "-d", "--wait"); err != nil {
 		logs, _ := c.compose("logs", "--tail=50")
-		c.t.Fatalf("docker compose up: %v\n%s\n%s", err, out, logs)
+		c.t.Fatalf("docker compose up: %v\n%s\n%s%s", err, out, logs, c.unhealthyReport())
 	}
+}
+
+// pull fetches the stack's images that aren't present yet, retrying, because
+// registries (mcr.microsoft.com in particular) sometimes reset connections
+// partway through large layers. Local images, like the edge's, are skipped.
+func (c *composeStack) pull() {
+	c.t.Helper()
+	out, err := c.compose("config", "--images")
+	if err != nil {
+		c.t.Fatalf("compose config --images: %v\n%s", err, out)
+	}
+	for _, image := range strings.Fields(string(out)) {
+		if exec.Command("docker", "image", "inspect", image).Run() == nil {
+			continue
+		}
+		const attempts = 4
+		for i := 1; ; i++ {
+			out, err := exec.Command("docker", "pull", "-q", image).CombinedOutput()
+			if err == nil {
+				break
+			}
+			if i == attempts {
+				c.t.Fatalf("docker pull %s: %v\n%s", image, err, out)
+			}
+			c.t.Logf("docker pull %s (attempt %d/%d): %v\n%s", image, i, attempts, err, out)
+			time.Sleep(time.Duration(i) * 5 * time.Second)
+		}
+	}
+}
+
+// unhealthyReport describes each container that isn't healthy: its
+// healthcheck history and its full logs, which --tail cuts short.
+func (c *composeStack) unhealthyReport() string {
+	out, err := c.compose("ps", "-a", "--format", "{{.Service}}\t{{.ID}}\t{{.Health}}")
+	if err != nil {
+		return fmt.Sprintf("\ncompose ps: %v\n%s", err, out)
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		service, rest, _ := strings.Cut(line, "\t")
+		id, health, _ := strings.Cut(rest, "\t")
+		if service == "" || health == "healthy" || health == "" {
+			continue
+		}
+		state, _ := exec.Command("docker", "inspect", "--format", "{{json .State}}", id).CombinedOutput()
+		logs, _ := c.compose("logs", "--no-log-prefix", "--timestamps", service)
+		fmt.Fprintf(&b, "\n=== %s is %s\nstate: %s\nlogs:\n%s", service, health, state, logs)
+	}
+	return b.String()
 }
 
 // traceSpans returns the span count of each trace in an experiment, read with

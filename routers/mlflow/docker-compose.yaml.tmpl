@@ -113,6 +113,10 @@ services:
   # edge talks to it.
   presidio-analyzer:
     image: ${PRESIDIO_ANALYZER_IMAGE:?set PRESIDIO_ANALYZER_IMAGE in .env}
+    environment:
+      # gunicorn 25 forks its worker while the control-socket thread is
+      # running, and the worker often deadlocks before it serves anything.
+      GUNICORN_CMD_ARGS: --no-control-socket
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"]
       interval: 5s

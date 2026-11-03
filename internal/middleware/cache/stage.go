@@ -91,7 +91,7 @@ func bypass(req *middleware.ChatRequest) string {
 		return "n > 1"
 	}
 	for _, v := range req.Header.Values("Cache-Control") {
-		for _, d := range strings.Split(v, ",") {
+		for d := range strings.SplitSeq(v, ",") {
 			if d := strings.ToLower(strings.TrimSpace(d)); d == "no-cache" || d == "no-store" {
 				return "cache-control: " + d
 			}

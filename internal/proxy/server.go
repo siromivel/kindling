@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -259,9 +260,7 @@ func (x *exchange) send(chunks []*middleware.ChatChunk) {
 
 func (x *exchange) writeHeader(status int) {
 	h := x.w.Header()
-	for k, vs := range x.req.ResponseHeader {
-		h[k] = vs
-	}
+	maps.Copy(h, x.req.ResponseHeader)
 	h.Set(TraceHeader, x.trace.TraceID())
 	x.status = status
 	x.w.WriteHeader(status)

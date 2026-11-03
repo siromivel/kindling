@@ -428,7 +428,7 @@ func (c *composeStack) pull() {
 	if err != nil {
 		c.t.Fatalf("compose config --images: %v\n%s", err, out)
 	}
-	for _, image := range strings.Fields(string(out)) {
+	for image := range strings.FieldsSeq(string(out)) {
 		if exec.Command("docker", "image", "inspect", image).Run() == nil {
 			continue
 		}
@@ -455,7 +455,7 @@ func (c *composeStack) unhealthyReport() string {
 		return fmt.Sprintf("\ncompose ps: %v\n%s", err, out)
 	}
 	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		service, rest, _ := strings.Cut(line, "\t")
 		id, health, _ := strings.Cut(rest, "\t")
 		if service == "" || health == "healthy" || health == "" {

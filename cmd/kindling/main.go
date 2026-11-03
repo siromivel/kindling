@@ -153,10 +153,10 @@ func unmetEnv(b backend.Backend, s *spec.Spec, env spec.Env) []backend.EnvRequir
 // containsAll reports whether every comma-separated item of want is in have.
 func containsAll(have, want string) bool {
 	items := map[string]bool{}
-	for _, v := range strings.Split(have, ",") {
+	for v := range strings.SplitSeq(have, ",") {
 		items[strings.ToLower(strings.TrimSpace(v))] = true
 	}
-	for _, v := range strings.Split(want, ",") {
+	for v := range strings.SplitSeq(want, ",") {
 		if !items[strings.ToLower(strings.TrimSpace(v))] {
 			return false
 		}
